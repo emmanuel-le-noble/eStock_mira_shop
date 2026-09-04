@@ -1,0 +1,13 @@
+/vendor/
+composer.lock
+.env
+
+# Fichiers générés à l'exécution
+/backups/
+/logs/
+/archives/
+/var/cache/
+*.sql.zip
+inspect_*.php
+nul
+NUL

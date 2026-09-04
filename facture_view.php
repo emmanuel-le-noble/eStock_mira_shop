@@ -1,0 +1,298 @@
+<?php
+/**
+ * facture_view.php - Consultation + impression d'une facture (ticket de caisse).
+ */
+// Guard: compatible avec le routeur front controller (index.php)
+if (!function_exists('est_connecte')) { require_once __DIR__ . '/config/connexion.php'; }
+if (!function_exists('db_article_insert')) { require_once __DIR__ . '/includes/db_functions.php'; }
+if (!function_exists('csrf_guard')) { require_once __DIR__ . '/includes/helpers.php'; }
+require_once __DIR__ . '/config/connexion.php';
+require_once __DIR__ . '/includes/db_functions.php';
+require_once __DIR__ . '/includes/helpers.php';
+exiger_permission('ventes_consulter');
+
+$id = (int)($_GET['id'] ?? 0);
+$token = input_string($_GET['token'] ?? '');
+$print_param = $_GET['print'] ?? '';
+$verify_extra = $print_param !== '' ? ['print' => $print_param] : [];
+if ($id <= 0 || !verify_url_signature($id, $token, $verify_extra)) {
+    flash_error('Lien invalide ou expiré.');
+    redirect('factures.php');
+}
+
+// La facture
+$f = db_facture_get_by_id($pdo, $id);
+if (!$f) { flash_error('Facture introuvable.'); redirect('factures.php'); }
+
+if ((int)($f['magasin_id'] ?? 0) !== user_magasin_id()) {
+    flash_error('Vous n\'avez pas accès à cette facture.');
+    redirect('factures.php');
+}
+
+if (user_role() === ROLE_VENDEUR && (int)($f['utilisateur_id'] ?? 0) !== (int)(user_courant()['id'] ?? 0)) {
+    flash_error('Vous n\'avez pas accès à cette facture.');
+    redirect('factures.php');
+}
+
+// Les lignes
+$lignes = db_facture_get_lignes($pdo, $id);
+
+// Paiements multi-modes
+$paiements = [];
+if (function_exists('db_paiements_by_facture')) {
+    $paiements = db_paiements_by_facture($pdo, $id);
+}
+
+// Calculer le total des remises pour cette facture
+$totalRemises = 0.0;
+foreach ($lignes as $l) {
+    if (!empty($l['prix_original']) && !empty($l['remise_pct'])) {
+        $prixOriginal = (float)$l['prix_original'];
+        $prixRemise = (float)$l['prix_unitaire'];
+        $qte = (int)$l['quantite'];
+        $totalRemises += ($prixOriginal - $prixRemise) * $qte;
+    }
+}
+$totalRemises = round($totalRemises, 2);
+
+// Calcul TVA multi-taux à partir des lignes (source unique de vérité pour l'affichage)
+$tauxTvaResume = [];
+foreach ($lignes as $l) {
+    $htLigne = calc_line_subtotal((float)$l['prix_unitaire'], (int)$l['quantite']);
+    $tauxLigne = ($l['taux_tva'] !== null && $l['taux_tva'] !== '') ? (float)$l['taux_tva'] : (float)($f['tva_taux'] ?? 0);
+    $tvaLigne  = $htLigne * ($tauxLigne / 100);
+    $tauxKey   = number_format($tauxLigne, 2);
+    if (!isset($tauxTvaResume[$tauxKey])) {
+        $tauxTvaResume[$tauxKey] = ['taux' => $tauxLigne, 'base_ht' => 0.0, 'montant_tva' => 0.0];
+    }
+    $tauxTvaResume[$tauxKey]['base_ht']      += $htLigne;
+    $tauxTvaResume[$tauxKey]['montant_tva']  += $tvaLigne;
+}
+$multiTaux = count($tauxTvaResume) > 1;
+// Y a-t-il au moins un taux de TVA non nul à afficher ?
+$totalTvaAffichable = array_sum(array_column($tauxTvaResume, 'montant_tva'));
+
+// L'impression auto ne doit se déclencher que si ?print=1 (ou toute valeur "vraie"),
+// pas simplement si le paramètre est présent (évite le déclenchement avec ?print=0).
+$impression = $print_param !== '' && $print_param !== '0';
+
+$nom_boutique = param_shop_name();
+$adresse_boutique = trim(param('adresse_boutique', ''));
+$code_postal = trim(param('code_postal', ''));
+$pays = trim(param('pays', ''));
+$telephone_boutique = trim(param('telephone_boutique', ''));
+$email_boutique = trim(param('email_boutique', ''));
+$site_boutique = trim(param('site_boutique', ''));
+$nif_boutique = trim(param('nif_boutique', ''));
+$rccm_boutique = trim(param('rccm_boutique', ''));
+$regime_tpu = param_regime_tpu();
+$ticket_entete = trim(param('ticket_entete', 'Merci de votre visite !'));
+$ticket_remarque = trim(param('ticket_remarque', ''));
+$ticket_format = param('ticket_format', '80mm') === '58mm' ? '58mm' : '80mm';
+$localisation = trim(implode(' ', array_filter([$code_postal, $pays])));
+
+// Conformité fiscale : le NIF boutique est requis sur toute facture (OTR)
+$facture_conforme = $nif_boutique !== '';
+// Facture B2B : client professionnel (raison sociale / RCCM) sans NIF
+$clientFactNif = trim((string)($f['client_nif'] ?? ''));
+$facture_b2b_sans_nif = ($f['client_raison_sociale'] ?? '') !== '' && $clientFactNif === '';
+$titre_page = 'Facture ' . $f['numero_facture'];
+include __DIR__ . '/includes/header.php';
+?>
+
+<div class="no-print mb-3">
+    <?php if (($f['statut'] ?? '') === 'Annulee'): ?>
+    <div class="alert alert-warning">
+        <i class="bi bi-exclamation-triangle"></i> Cette facture a été annulée.
+    </div>
+    <?php endif; ?>
+    <?php if (!$facture_conforme): ?>
+    <div class="alert alert-danger d-flex align-items-center gap-2">
+        <i class="bi bi-shield-exclamation fs-5"></i>
+        <div>
+            <strong>Facture non conforme (OTR) :</strong> le NIF de la boutique n'est pas renseigné
+            dans <a href="parametres.php" class="alert-link">Paramètres → Boutique</a>.
+        </div>
+    </div>
+    <?php endif; ?>
+    <?php if ($facture_b2b_sans_nif): ?>
+    <div class="alert alert-warning d-flex align-items-center gap-2">
+        <i class="bi bi-shield-exclamation fs-5"></i>
+        <div>
+            <strong>Facture B2B non conforme (OTR) :</strong> le client professionnel
+            <?= h($f['client_raison_sociale']) ?> ne dispose pas d'un NIF renseigné sur
+            sa fiche client.
+        </div>
+    </div>
+    <?php endif; ?>
+</div>
+
+<div class="no-print mb-3 d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <a href="<?= h('factures.php') ?>" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> Retour à la liste
+    </a>
+    <div class="d-flex gap-2">
+        <button class="btn btn-primary" id="btnPrintFacture">
+            <i class="bi bi-printer"></i> Imprimer / Réimprimer
+        </button>
+        <a href="<?= h('ticket_print.php?facture_id=' . $id) ?>" class="btn btn-outline-dark" target="_blank">
+            <i class="bi bi-receipt"></i> Ticket thermique
+        </a>
+        <a href="<?= h('facture_a4.php?facture_id=' . $id) ?>" class="btn btn-outline-primary" target="_blank">
+            <i class="bi bi-file-earmark-pdf"></i> Facture A5
+        </a>
+        <?php if (peut_facturer() && ($f['statut'] ?? '') === 'Payee'): ?>
+            <a href="<?= h('caisse.php') ?>" class="btn btn-success"><i class="bi bi-cart-plus"></i> Nouvelle vente</a>
+        <?php endif; ?>
+    </div>
+</div>
+
+<!-- ============ TICKET DE CAISSE ============ -->
+<div class="ticket ticket-<?= h($ticket_format) ?>" id="ticket">
+    <div class="text-center">
+        <h2><?= h($nom_boutique) ?></h2>
+        <?php if ($adresse_boutique): ?><div><?= h($adresse_boutique) ?></div><?php endif; ?>
+        <?php if ($localisation): ?><div><?= h($localisation) ?></div><?php endif; ?>
+        <?php if ($telephone_boutique): ?><div>Tél : <?= h($telephone_boutique) ?></div><?php endif; ?>
+        <?php if ($nif_boutique): ?><div>NIF : <?= h($nif_boutique) ?></div><?php endif; ?>
+        <?php if ($rccm_boutique): ?><div>RCCM : <?= h($rccm_boutique) ?></div><?php endif; ?>
+        <?php if ($email_boutique): ?><div><?= h($email_boutique) ?></div><?php endif; ?>
+        <div class="hr-dashed"></div>
+    </div>
+
+    <div>
+        <div><strong>Ticket N° :</strong> <?= h($f['numero_facture']) ?></div>
+        <div><strong>Date :</strong> <?= h(date_fr($f['date_facture'])) ?></div>
+        <div><strong>Vendeur :</strong> <?= h($f['vendeur_nom'] ?: '—') ?></div>
+        <?php $clientFactNom = trim((string)($f['client_nom'] ?? ''));
+        if ($clientFactNom !== '' && (int)($f['client_id'] ?? 0) > 0): ?>
+        <div class="hr-dashed"></div>
+        <div><strong>Client :</strong> <?= h($clientFactNom) ?></div>
+        <?php if ($clientFactNif !== ''): ?><div>NIF : <?= h($clientFactNif) ?></div><?php endif; ?>
+        <?php endif; ?>
+    </div>
+
+    <div class="hr-dashed"></div>
+
+    <table>
+        <thead>
+            <tr>
+                <th align="left">Article</th>
+                <th align="center">Qté</th>
+                <?php if ($totalRemises > 0): ?>
+                <th align="right"><s>Prix init.</s></th>
+                <th align="center">Rem.</th>
+                <?php endif; ?>
+                <th align="right">P.U.</th>
+                <th align="right">Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            <?php foreach ($lignes as $l):
+                $st = calc_line_subtotal((float)$l['prix_unitaire'], (int)$l['quantite']);
+                $hasRemise = !empty($l['prix_original']) && !empty($l['remise_pct']) && (float)$l['remise_pct'] > 0;
+            ?>
+            <tr>
+                <td><?= h($l['article_nom']) ?></td>
+                <td align="center"><?= (int)$l['quantite'] ?></td>
+                <?php if ($totalRemises > 0): ?>
+                <td align="right"><?= $hasRemise ? '<s>' . h(money((float)$l['prix_original'])) . '</s>' : '' ?></td>
+                <td align="center"><?= $hasRemise ? '-' . h(number_format((float)$l['remise_pct'], 0, ',', '')) . '%' : '—' ?></td>
+                <?php endif; ?>
+                <td align="right"><?= h(money((float)$l['prix_unitaire'])) ?></td>
+                <td align="right"><?= h(money((float)$st)) ?></td>
+            </tr>
+            <?php endforeach; ?>
+        </tbody>
+    </table>
+
+    <div class="hr-dashed"></div>
+
+    <table>
+        <tr>
+            <td>Total HT</td>
+            <td align="right"><?= h(money((float)($f['total_ht'] ?? 0))) ?></td>
+        </tr>
+
+        <?php
+            // Ventilation TVA : un seul bloc, quel que soit le nombre de taux distincts.
+            // On se base toujours sur les montants calculés ligne par ligne (tauxTvaResume)
+            // pour éviter tout écart d'arrondi avec le total global de la facture.
+        ?>
+        <?php if ($totalTvaAffichable > 0): ?>
+            <?php foreach ($tauxTvaResume as $tv): ?>
+                <?php if ($tv['taux'] > 0): ?>
+                <tr>
+                    <td>
+                        TVA <?= h(number_format($tv['taux'], 2, ',', '')) ?>%<?php if ($multiTaux): ?> (base <?= h(money($tv['base_ht'])) ?>)<?php endif; ?>
+                    </td>
+                    <td align="right"><?= h(money($tv['montant_tva'])) ?></td>
+                </tr>
+                <?php endif; ?>
+            <?php endforeach; ?>
+        <?php elseif ($regime_tpu): ?>
+        <tr>
+            <td colspan="2" align="center" style="font-weight:bold;">TVA non applicable (TPU)</td>
+        </tr>
+        <?php endif; ?>
+
+        <?php if ($totalRemises > 0): ?>
+        <tr>
+            <td style="color:#059669">Total Remises</td>
+            <td align="right" style="color:#059669">−<?= h(number_format($totalRemises, 0, ',', ' ')) ?> <?= h(param('devise_symbole', 'FCFA')) ?></td>
+        </tr>
+        <?php endif; ?>
+        <tr>
+            <td><strong>TOTAL TTC</strong></td>
+            <td align="right"><strong><?= h(money((float)($f['total_ttc'] ?? 0))) ?></strong></td>
+        </tr>
+    </table>
+
+    <div class="hr-dashed"></div>
+
+    <table>
+    <?php if (!empty($paiements)): ?>
+        <tr><td colspan="2"><strong>PAIEMENTS</strong></td></tr>
+        <?php foreach ($paiements as $p): ?>
+        <tr>
+            <td><?= h(ucfirst(str_replace('_', ' ', $p['mode_paiement'] ?? ''))) ?></td>
+            <td align="right"><?= h(money((float)$p['montant'])) ?></td>
+        </tr>
+        <?php endforeach; ?>
+    <?php endif; ?>
+        <tr>
+            <td>Reçu</td>
+            <td align="right"><?= h(money((float)($f['montant_paye'] ?? 0))) ?></td>
+        </tr>
+        <tr>
+            <td>Rendu</td>
+            <td align="right"><?= h(money((float)($f['monnaie_rendue'] ?? 0))) ?></td>
+        </tr>
+    </table>
+
+    <div class="hr-dashed"></div>
+
+    <div class="text-center">
+        <?php if ($ticket_entete): ?><p style="margin:4px 0;"><?= h($ticket_entete) ?></p><?php endif; ?>
+        <?php if ($ticket_remarque): ?><p style="margin:4px 0;"><?= h($ticket_remarque) ?></p><?php endif; ?>
+        <?php if ($site_boutique): ?><p style="margin:0;"><?= h($site_boutique) ?></p><?php endif; ?>
+    </div>
+</div>
+
+<?php if ($impression): ?>
+<script nonce="<?= h(csp_nonce()) ?>">
+    // Lancement automatique de l'impression si ?print=1
+    window.addEventListener('load', function () {
+        setTimeout(function () { window.print(); }, 300);
+    });
+</script>
+<?php endif; ?>
+
+<script nonce="<?= h(csp_nonce()) ?>">
+    (function() {
+        var btn = document.getElementById('btnPrintFacture');
+        if (btn) btn.addEventListener('click', function () { window.print(); });
+    })();
+</script>
+
+<?php include __DIR__ . '/includes/footer.php'; ?>

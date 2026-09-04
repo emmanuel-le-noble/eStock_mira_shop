@@ -1,0 +1,87 @@
+{% extends "base.html.twig" %}
+
+{% block body %}
+<div class="card shadow-sm mb-4">
+    <div class="card-body">
+        <div class="alert alert-info d-flex align-items-start gap-2">
+            <i class="bi bi-file-earmark-text fs-5"></i>
+            <div>
+                <strong>Export SYSCOHADA (OHADA)</strong> — écritures comptables de la période
+                au format CSV « ; » (UTF-8), plan comptable OHADA. À transmettre à votre
+                comptable ou à importer dans un logiciel de comptabilité SYSCOHADA.
+                Journal VT (ventes), AC (achats), DG (dépenses), INV (variation
+                de stocks au CUMP).
+            </div>
+        </div>
+
+        <form method="get" action="export_syscohada.php" class="row g-2 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label small">Du</label>
+                <input type="date" name="debut" class="form-control" value="{{ debut }}" required>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small">Au</label>
+                <input type="date" name="fin" class="form-control" value="{{ fin }}" required>
+            </div>
+            {% if magasins|default([])|length > 1 %}
+            <div class="col-md-3">
+                <label class="form-label small">Magasin</label>
+                <select name="magasin_id" class="form-select">
+                    <option value="0">Tous les magasins</option>
+                    {% for m in magasins %}
+                        <option value="{{ m.id }}" {{ magasin_id == m.id ? 'selected' : '' }}>{{ m.nom }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
+            <div class="col-md-3 d-flex gap-2">
+                <button type="submit" class="btn btn-primary"><i class="bi bi-search"></i> Afficher l'aperçu</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card shadow-sm">
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h6 class="mb-0">Écritures de la période ({{ debut }} → {{ fin }})</h6>
+            <a href="export_syscohada.php?debut={{ debut }}&fin={{ fin }}&magasin_id={{ magasin_id }}&export=1"
+               class="btn btn-success">
+                <i class="bi bi-download"></i> Télécharger le fichier SYSCOHADA
+            </a>
+        </div>
+
+        <div class="row text-center g-3">
+            <div class="col-md-3">
+                <div class="border rounded p-3">
+                    <div class="fs-3 fw-bold text-primary">{{ apercu.ventes }}</div>
+                    <div class="small text-muted">Journal VT — Ventes (factures)</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="border rounded p-3">
+                    <div class="fs-3 fw-bold text-success">{{ apercu.achats }}</div>
+                    <div class="small text-muted">Journal AC — Achats (réceptions)</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="border rounded p-3">
+                    <div class="fs-3 fw-bold text-warning">{{ apercu.depenses }}</div>
+                    <div class="small text-muted">Journal DG — Dépenses</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="border rounded p-3">
+                    <div class="fs-3 fw-bold text-secondary">{{ apercu.stocks }}</div>
+                    <div class="small text-muted">Journal INV — Variation de stocks (CUMP)</div>
+                </div>
+            </div>
+        </div>
+
+        <p class="small text-muted mt-3 mb-0">
+            En régime <strong>TPU</strong>, les factures sont hors taxes : aucun compte de
+            TVA (4457) n'est alimenté. Les annulations sont contre-passées dans le journal VT.
+        </p>
+    </div>
+</div>
+{% endblock %}

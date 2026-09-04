@@ -1,0 +1,138 @@
+{# carte_fidelite.html.twig — Carte de fidélité imprimable (autonome) #}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Carte de fidélité</title>
+    <style>
+        :root {
+            --doc-red: #D52B1E;
+            --doc-red-dark: #B71C1C;
+            --doc-orange: #F57C00;
+            --doc-green: #8DC63F;
+        }
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Courier New', Courier, monospace;
+            background: #f1f5f9;
+            display: flex;
+            justify-content: center;
+            padding: 24px;
+        }
+        .carte {
+            width: 85mm;
+            height: 55mm;
+            background: linear-gradient(135deg, var(--doc-red) 0%, var(--doc-orange) 100%);
+            color: #fff;
+            border-radius: 4mm;
+            padding: 6mm;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            position: relative;
+            overflow: hidden;
+        }
+        .carte::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: var(--doc-green);
+        }
+        .carte::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(circle at 85% 20%, rgba(255,255,255,.12), transparent 60%);
+        }
+        .entete {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: relative;
+            z-index: 1;
+        }
+        .nom-boutique { font-size: 15px; font-weight: 700; letter-spacing: .5px; }
+        .badge-fidelite {
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            border: 1px solid rgba(255,255,255,.5);
+            padding: 1mm 2.5mm;
+            border-radius: 1mm;
+            background: rgba(255,255,255,.15);
+        }
+        .client-nom { font-size: 14px; font-weight: 700; margin-top: 2mm; position: relative; z-index: 1; }
+        .client-id { font-size: 10px; opacity: .85; position: relative; z-index: 1; }
+        .code-barre {
+            background: #fff;
+            padding: 2.5mm;
+            border-radius: 1.5mm;
+            text-align: center;
+            display: flex;
+            justify-content: center;
+            position: relative;
+            z-index: 1;
+        }
+        .code-barre svg, .code-barre canvas { max-width: 62mm; }
+        .solde {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 11px;
+            position: relative;
+            z-index: 1;
+        }
+        .solde strong { font-size: 15px; }
+        .no-print { text-align: center; margin-top: 14px; }
+        @media print {
+            body { background: #fff; padding: 0; }
+            .no-print { display: none; }
+        }
+        @page { size: 90mm 60mm; margin: 0; }
+    </style>
+</head>
+<body>
+<div>
+    <div class="carte">
+        <div class="entete">
+            <span class="nom-boutique">{{ nom_boutique|e }}</span>
+            <span class="badge-fidelite">★ Fidélité</span>
+        </div>
+        <div>
+            <div class="client-nom">{{ nom_client ?: '—' }}</div>
+            <div class="client-id">Carte n° {{ code }}</div>
+        </div>
+        <div class="code-barre">
+            <svg id="codeBarreCarte"></svg>
+        </div>
+        <div class="solde">
+            <span>Solde
+                {% if not consenti %}<span style="opacity:.75">(sans consentement)</span>{% endif %}
+            </span>
+            <strong>{{ solde_points }} pts</strong>
+        </div>
+    </div>
+    <div class="no-print">
+        <button class="btn" onclick="window.print()" style="padding:8px 18px;background:var(--doc-red);color:#fff;border:0;border-radius:6px;cursor:pointer;font-weight:600;">
+            Imprimer la carte
+        </button>
+    </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+<script nonce="{{ csp_nonce_val|default('') }}">
+    try {
+        JsBarcode('#codeBarreCarte', {{ code|json_encode|raw }}, {
+            format: 'CODE128',
+            width: 1.4,
+            height: 34,
+            displayValue: false,
+            margin: 0
+        });
+    } catch (e) {}
+</script>
+</body>
+</html>
