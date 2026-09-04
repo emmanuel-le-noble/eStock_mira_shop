@@ -52,7 +52,7 @@ if ($activeDefaults) {
     $errors[] = 'Compte(s) de démonstration actif(s) : ' . implode(', ', $activeDefaults);
 }
 
-$stmt = $pdo->query("SELECT COUNT(*) FROM utilisateurs WHERE actif = 1 AND role = 'chef équipe'");
+$stmt = $pdo->query("SELECT COUNT(*) FROM utilisateurs u JOIN roles r ON r.id = u.role_id WHERE u.actif = 1 AND r.code = 'PROPRIETAIRE'");
 if ((int)$stmt->fetchColumn() === 0) {
     $errors[] = 'Aucun compte Directeur actif : exécutez bin/create_admin.php.';
 }

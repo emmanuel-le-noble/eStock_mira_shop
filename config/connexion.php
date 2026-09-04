@@ -201,7 +201,7 @@ if (php_sapi_name() !== 'cli' && !$__is_cli) {
     $currentScript = basename($_SERVER['PHP_SELF'] ?? '');
     if ($currentScript !== 'install.php') {
         try {
-            $checkAdmin = $pdo->query("SELECT COUNT(*) FROM utilisateurs WHERE role IN ('chef équipe','Admin') AND actif = 1")->fetchColumn();
+            $checkAdmin = $pdo->query("SELECT COUNT(*) FROM utilisateurs u JOIN roles r ON r.id = u.role_id WHERE r.code IN ('PROPRIETAIRE','ADMIN') AND u.actif = 1")->fetchColumn();
             $checkMag   = $pdo->query("SELECT COUNT(*) FROM magasins WHERE actif = 1")->fetchColumn();
             if ((int)$checkAdmin === 0 || (int)$checkMag === 0) {
                 header('Location: install.php');
