@@ -22,13 +22,12 @@ $installed = false;
 // Verifier si le fichier .env contient les cles requises ET qu'un admin existe
 if (is_file($envFile)) {
     $envContent = file_get_contents($envFile);
-    if (preg_match('/^DB_PASS\s*=\s*.+$/m', $envContent)
-        && preg_match('/^SECRET_URL_KEY\s*=\s*.{32,}$/m', $envContent)) {
+    if (preg_match('/^SECRET_URL_KEY\s*=\s*.{32,}$/m', $envContent)) {
         // Essayer de se connecter et verifier l'existence d'un admin
         try {
             require_once __DIR__ . '/config/connexion.php';
             if (function_exists('db_user_get_by_login') && function_exists('db_magasins_list_all')) {
-                $admins = $pdo->query("SELECT COUNT(*) FROM utilisateurs WHERE role IN ('chef équipe','Admin') AND actif = 1")->fetchColumn();
+                $admins = $pdo->query("SELECT COUNT(*) FROM utilisateurs u JOIN roles r ON r.id = u.role_id WHERE r.code IN ('PROPRIETAIRE','ADMIN','chef équipe','Admin') AND u.actif = 1")->fetchColumn();
                 $magasins = $pdo->query("SELECT COUNT(*) FROM magasins WHERE actif = 1")->fetchColumn();
                 if ($admins > 0 && $magasins > 0) {
                     $installed = true;
