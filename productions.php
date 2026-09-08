@@ -9,6 +9,7 @@ $titre_page = 'Productions';
 
 // POST handler: enregistrer production
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'enregistrer') {
+    exiger_permission('production_gerer');
     csrf_guard('productions.php');
     $data = extract_post_data([
         'article_id'       => ['type' => 'int', 'required' => true],
@@ -31,6 +32,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'enregistrer') {
 
 // POST handler: démarrer
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'demarrer') {
+    exiger_permission('production_gerer');
     csrf_guard('productions.php');
     $id = (int)($_POST['id'] ?? 0);
     try {
@@ -45,6 +47,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'demarrer') {
 
 // POST handler: annuler
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'annuler') {
+    exiger_permission('production_gerer');
     csrf_guard('productions.php');
     $id = (int)($_POST['id'] ?? 0);
     try {

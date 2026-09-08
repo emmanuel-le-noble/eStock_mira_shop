@@ -11,7 +11,7 @@
 <script nonce="<?= h(csp_nonce()) ?>" src="<?= BASE_URL ?>assets/js/app.js"></script>
 <script nonce="<?= h(csp_nonce()) ?>">
 (function(){
-    var msgs = <?= json_encode($flashMessages, JSON_UNESCAPED_UNICODE) ?>;
+    var msgs = <?= json_encode($flashMessages, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
     if (!msgs || !msgs.length) return;
     var icons = {success:'check-circle-fill', danger:'exclamation-triangle-fill', warning:'exclamation-triangle-fill', info:'info-circle-fill'};
     var container = document.getElementById('flashToastContainer');

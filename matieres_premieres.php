@@ -9,6 +9,7 @@ $titre_page = 'Matières premières';
 
 // POST handlers
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'enregistrer') {
+    exiger_permission('usine_gerer');
     csrf_guard('matieres_premieres.php');
     $data = extract_post_data([
         'id'          => ['type' => 'int', 'default' => 0],
@@ -37,6 +38,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'enregistrer') {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'supprimer') {
+    exiger_permission('usine_gerer');
     csrf_guard('matieres_premieres.php');
     $id = (int)($_POST['id'] ?? 0);
     if ($id > 0) {

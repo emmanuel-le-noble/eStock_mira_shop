@@ -5,14 +5,15 @@ require_once __DIR__ . '/includes/helpers.php';
 
 exiger_permission('presence_consulter');
 
-$date = $_GET['date'] ?? date('Y-m-d');
+$date = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['date'] ?? '') ? $_GET['date'] : date('Y-m-d');
 $titre_page = 'Présences — ' . date('d/m/Y', strtotime($date));
 
 // POST: enregistrer présence
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    exiger_permission('presence_gerer');
     csrf_guard('presences.php');
     $employe_id = (int)($_POST['employe_id'] ?? 0);
-    $date_presence = $_POST['date_presence'] ?? date('Y-m-d');
+    $date_presence = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_POST['date_presence'] ?? '') ? $_POST['date_presence'] : date('Y-m-d');
     $heure_arrivee = $_POST['heure_arrivee'] ?? null;
     $heure_depart = $_POST['heure_depart'] ?? null;
     $commentaire = $_POST['commentaire'] ?? null;

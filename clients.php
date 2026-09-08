@@ -150,11 +150,13 @@ if ($action === 'voir' && $idView > 0) {
     // Points gagnés (GAIN) à l'achat, par facture — pour l'historique des achats
     $pointsParFacture = [];
     if ($achats_liste) {
-        $in = implode(',', array_map('intval', array_column($achats_liste, 'id')));
-        $st_pts = $pdo->query(
+        $factureIds = array_column($achats_liste, 'id');
+        $placeholders = implode(',', array_fill(0, count($factureIds), '?'));
+        $st_pts = $pdo->prepare(
             "SELECT facture_id, points FROM historique_points
-             WHERE facture_id IN ($in) AND type_operation = 'GAIN'"
+             WHERE facture_id IN ($placeholders) AND type_operation = 'GAIN'"
         );
+        $st_pts->execute(array_map('intval', $factureIds));
         foreach ($st_pts->fetchAll() as $p) {
             $pointsParFacture[(int)$p['facture_id']] = (int)$p['points'];
         }
@@ -178,7 +180,8 @@ if ($action === 'voir' && $idView > 0) {
 
 // ---- Vue : liste + recherche ----
 $search = input_string($_GET['search'] ?? '');
-$result = paginate(db_clients_search_sql(['search' => $search])['sql'], db_clients_search_sql(['search' => $search])['params'], 25);
+$clientSearch = db_clients_search_sql(['search' => $search]);
+$result = paginate($clientSearch['sql'], $clientSearch['params'], 25);
 $clients = $result['items'];
 
 echo $twig->render('clients.html.twig', [

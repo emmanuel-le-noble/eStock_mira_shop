@@ -13,8 +13,8 @@ exiger_permission('ventes_consulter');
 
 $search = input_string($_GET['q'] ?? '');
 $statut = $_GET['statut'] ?? '';
-$debut  = $_GET['debut'] ?? '';
-$fin    = $_GET['fin'] ?? '';
+$debut  = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['debut'] ?? '') ? $_GET['debut'] : '';
+$fin    = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['fin'] ?? '') ? $_GET['fin'] : '';
 
 $filters = [
     'search' => $search,

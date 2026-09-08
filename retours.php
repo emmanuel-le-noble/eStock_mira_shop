@@ -52,8 +52,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'enregistrer') {
     // Quantités déjà retournées par ligne de facture
     $dejaRetourneParLigne = [];
     if ($lignes_facture) {
-        $stmt_deja = $pdo->prepare("SELECT ligne_facture_id, SUM(quantite) AS total FROM lignes_retour WHERE ligne_facture_id IN (" . implode(',', array_map('intval', array_keys($qteVendueParLigne))) . ") GROUP BY ligne_facture_id");
-        $stmt_deja->execute();
+        $ligneIds = array_keys($qteVendueParLigne);
+        $placeholders = implode(',', array_fill(0, count($ligneIds), '?'));
+        $stmt_deja = $pdo->prepare("SELECT ligne_facture_id, SUM(quantite) AS total FROM lignes_retour WHERE ligne_facture_id IN ($placeholders) GROUP BY ligne_facture_id");
+        $stmt_deja->execute(array_values($ligneIds));
         foreach ($stmt_deja->fetchAll() as $dr) {
             $dejaRetourneParLigne[(int)$dr['ligne_facture_id']] = (int)$dr['total'];
         }

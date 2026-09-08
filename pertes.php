@@ -17,8 +17,8 @@ exiger_permission('pertes_consulter');
 $filters = [
     'fournisseur_id' => $_GET['fournisseur_id'] ?? '',
     'magasin_id'     => $_GET['magasin_id'] ?? '',
-    'date_debut'     => $_GET['date_debut'] ?? '',
-    'date_fin'       => $_GET['date_fin'] ?? '',
+    'date_debut'     => preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['date_debut'] ?? '') ? $_GET['date_debut'] : '',
+    'date_fin'       => preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['date_fin'] ?? '') ? $_GET['date_fin'] : '',
 ];
 
 $pertes = db_pertes_list(

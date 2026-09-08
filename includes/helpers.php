@@ -485,7 +485,9 @@ function generate_return_number(PDO $pdo): string {
     }
 
     $year  = date('Y');
-    $count = (int)$pdo->query("SELECT COUNT(*)+1 FROM retours_factures WHERE YEAR(created_at) = $year")->fetchColumn();
+    $stmt  = $pdo->prepare("SELECT COUNT(*)+1 FROM retours_factures WHERE YEAR(created_at) = :year");
+    $stmt->execute([':year' => $year]);
+    $count = (int)$stmt->fetchColumn();
     return 'RET-' . $year . '-' . str_pad($count, 4, '0', STR_PAD_LEFT);
 }
 
@@ -510,7 +512,9 @@ function generate_inventory_ref(PDO $pdo): string {
     }
 
     $year  = date('Y');
-    $count = (int)$pdo->query("SELECT COUNT(*)+1 FROM inventaires WHERE YEAR(created_at) = $year")->fetchColumn();
+    $stmt  = $pdo->prepare("SELECT COUNT(*)+1 FROM inventaires WHERE YEAR(created_at) = :year");
+    $stmt->execute([':year' => $year]);
+    $count = (int)$stmt->fetchColumn();
     return 'INV-' . $year . '-' . str_pad($count, 4, '0', STR_PAD_LEFT);
 }
 

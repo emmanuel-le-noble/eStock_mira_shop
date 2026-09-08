@@ -175,7 +175,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script nonce="<?= h(csp_nonce()) ?>">
 (function(){
-    var msgs = <?= json_encode($flash_captured ?? [], JSON_UNESCAPED_UNICODE) ?>;
+    var msgs = <?= json_encode($flash_captured ?? [], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
     if (!msgs || !msgs.length) return;
     var icons = {success:'check-circle-fill', danger:'exclamation-triangle-fill', warning:'exclamation-triangle-fill', info:'info-circle-fill'};
     var container = document.getElementById('flashToastContainer');

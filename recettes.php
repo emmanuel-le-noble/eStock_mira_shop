@@ -9,6 +9,7 @@ $titre_page = 'Recettes de production';
 
 // POST handlers
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'enregistrer') {
+    exiger_permission('usine_gerer');
     csrf_guard('recettes.php');
     $id = (int)($_POST['id'] ?? 0);
     $nom = trim($_POST['nom'] ?? '');
@@ -46,6 +47,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'enregistrer') {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'supprimer') {
+    exiger_permission('usine_gerer');
     csrf_guard('recettes.php');
     $id = (int)($_POST['id'] ?? 0);
     if ($id > 0) {

@@ -9,7 +9,7 @@ if (!function_exists('csrf_guard'))      { require_once __DIR__ . '/includes/hel
 
 exiger_permission('exports_consulter');
 
-$type = $_GET['type'] ?? 'articles';
+$type = preg_replace('/[^a-zA-Z0-9_]/', '', $_GET['type'] ?? 'articles');
 $filename = 'export_' . $type . '_' . date('Y-m-d_H-i') . '.csv';
 
 // En-têtes HTTP pour téléchargement CSV UTF-8

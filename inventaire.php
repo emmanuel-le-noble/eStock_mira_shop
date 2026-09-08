@@ -26,6 +26,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'nouveau') {
 
     $data['magasin_id'] = $magasin_id;
 
+    $newId = null;
     db_transaction(
         function(PDO $pdo) use ($data, $userId, &$newId) {
             $ref   = generate_inventory_ref($pdo);
@@ -49,7 +50,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'saisie') {
     exiger_permission('inventaire_gerer');
     header('Content-Type: application/json');
 
-    $csrfOk = verify_csrf_token($_POST['csrf_token'] ?? '');
+    $csrfOk = verify_csrf_token($_POST['_csrf_token'] ?? $_POST['csrf_token'] ?? '');
     if (!$csrfOk) { echo json_encode(['ok' => false, 'msg' => 'CSRF invalide']); exit; }
 
     $inv_id      = (int)($_POST['inventaire_id'] ?? 0);

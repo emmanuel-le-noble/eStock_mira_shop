@@ -464,9 +464,6 @@ function db_articles_hautes_ventes(PDO $pdo, int $magasin_id, int $limit = 10, i
     $limit = max(1, min(50, (int)$limit));
     $jours = max(7, min(365, (int)$jours));
     $mid = (int)$magasin_id;
-    // NOTE : $jours et $mid sont des entiers bornés, interpolés car MySQL interdit
-    // les placeholders dans INTERVAL ... DAY et refuse la répétition d'un même
-    // paramètre nommé en mode natif (PDO::ATTR_EMULATE_PREPARES => false).
     $sql = "
         SELECT a.id, a.nom, a.code_barre, a.prix_vente, a.fournisseur_id, a.seuil_alerte,
                f.nom AS fournisseur_nom,
@@ -474,13 +471,13 @@ function db_articles_hautes_ventes(PDO $pdo, int $magasin_id, int $limit = 10, i
                COALESCE(v.quantite_vendue, 0) AS quantite_vendue,
                COALESCE(v.nb_ventes, 0) AS nb_ventes
         FROM articles a
-        LEFT JOIN stock_magasins sm ON sm.article_id = a.id AND sm.magasin_id = {$mid}
+        LEFT JOIN stock_magasins sm ON sm.article_id = a.id AND sm.magasin_id = :mid1
         LEFT JOIN fournisseurs f ON f.id = a.fournisseur_id
         LEFT JOIN (
             SELECT l.article_id, SUM(l.quantite) AS quantite_vendue, COUNT(DISTINCT l.facture_id) AS nb_ventes
             FROM lignes_facture l
             JOIN factures ff ON ff.id = l.facture_id
-            WHERE ff.statut = 'Payee' AND ff.date_facture >= DATE_SUB(NOW(), INTERVAL {$jours} DAY) AND ff.magasin_id = {$mid}
+            WHERE ff.statut = 'Payee' AND ff.date_facture >= DATE_SUB(NOW(), INTERVAL :jours DAY) AND ff.magasin_id = :mid2
             GROUP BY l.article_id
         ) v ON v.article_id = a.id
         WHERE a.actif = 1
@@ -488,6 +485,9 @@ function db_articles_hautes_ventes(PDO $pdo, int $magasin_id, int $limit = 10, i
         LIMIT :limit
     ";
     $stmt = $pdo->prepare($sql);
+    $stmt->bindValue(':mid1', $mid, PDO::PARAM_INT);
+    $stmt->bindValue(':mid2', $mid, PDO::PARAM_INT);
+    $stmt->bindValue(':jours', $jours, PDO::PARAM_INT);
     $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
     $stmt->execute();
     $articles = $stmt->fetchAll();

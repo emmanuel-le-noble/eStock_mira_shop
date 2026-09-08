@@ -867,7 +867,7 @@ function handle_caisse_sync(): void {
         }
         error_log('API caisse sync error: ' . $e->getMessage());
         if ($e instanceof RuntimeException) {
-            json_out(['success' => false, 'error' => 'Erreur lors de la synchronisation : ' . $e->getMessage()], 409);
+            json_out(['success' => false, 'error' => 'Erreur lors de la synchronisation : données invalides.'], 409);
         }
         json_out(['success' => false, 'error' => 'Erreur lors de la synchronisation de la vente.'], 500);
     }
@@ -1163,7 +1163,7 @@ function handle_reception_create(): void {
         json_out(['success' => true, 'id' => $reception_id]);
     } catch (Throwable $e) {
         $pdo->rollBack();
-        json_out(['error' => 'Erreur création réception: ' . $e->getMessage()], 500);
+        json_out(['error' => 'Erreur création réception: données invalides.'], 500);
     }
 }
 
@@ -1176,7 +1176,8 @@ function handle_reception_valider(int $id): void {
         if (!$ok) json_out(['error' => 'Réception non trouvée ou statut invalide.'], 422);
         json_out(['success' => true]);
     } catch (Throwable $e) {
-        json_out(['error' => 'Erreur validation: ' . $e->getMessage()], 500);
+        error_log('API reception validation error: ' . $e->getMessage());
+        json_out(['error' => 'Erreur lors de la validation de la réception.'], 500);
     }
 }
 
@@ -1372,7 +1373,8 @@ function handle_production_demarrer(int $id): void {
         suivre_activite('PRODUCTION_DEMARREE', "Production #$id démarrée");
         json_out(['success' => true]);
     } catch (Throwable $e) {
-        json_out(['error' => $e->getMessage()], 422);
+        error_log('API production demarrer error: ' . $e->getMessage());
+        json_out(['error' => 'Erreur lors du démarrage de la production.'], 422);
     }
 }
 
@@ -1395,7 +1397,8 @@ function handle_production_cloturer(int $id): void {
         suivre_activite('PRODUCTION_TERMINEE', "Production #$id clôturée — $quantite_produite produits, $quantite_perdue pertes");
         json_out(['success' => true]);
     } catch (Throwable $e) {
-        json_out(['error' => $e->getMessage()], 422);
+        error_log('API production cloturer error: ' . $e->getMessage());
+        json_out(['error' => 'Erreur lors de la clôture de la production.'], 422);
     }
 }
 
@@ -1409,7 +1412,8 @@ function handle_production_annuler(int $id): void {
         suivre_activite('PRODUCTION_ANNULEE', "Production #$id annulée");
         json_out(['success' => true]);
     } catch (Throwable $e) {
-        json_out(['error' => $e->getMessage()], 422);
+        error_log('API production annuler error: ' . $e->getMessage());
+        json_out(['error' => 'Erreur lors de l\'annulation de la production.'], 422);
     }
 }
 
@@ -1536,7 +1540,8 @@ function handle_transfert_usine(): void {
         suivre_activite('TRANSFERT_USINE_MAGASIN', "Article #{$input['article_id']} → Magasin #{$input['magasin_destination_id']}: {$input['quantite']} unités");
         json_out(['success' => true]);
     } catch (Throwable $e) {
-        json_out(['error' => $e->getMessage()], 422);
+        error_log('API transfert usine error: ' . $e->getMessage());
+        json_out(['error' => 'Erreur lors du transfert.'], 422);
     }
 }
 

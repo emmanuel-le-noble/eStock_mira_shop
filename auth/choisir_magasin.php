@@ -117,7 +117,7 @@ $magasin_courant = (int)($_SESSION['magasin_actif'] ?? 0);
             unset($_SESSION['flash']);
             if (!empty($flashMessages)):
             ?>
-            <div id="choisirFlashData" style="display:none;" data-flash="<?= h(json_encode($flashMessages, JSON_UNESCAPED_UNICODE)) ?>"></div>
+            <div id="choisirFlashData" style="display:none;" data-flash="<?= h(json_encode($flashMessages, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)) ?>"></div>
             <?php endif; ?>
 
             <?php if (empty($magasins)): ?>
