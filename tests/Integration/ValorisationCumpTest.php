@@ -42,11 +42,11 @@ final class ValorisationCumpTest extends PHPUnit\Framework\TestCase
     {
         $id = $this->creerArticle(100.0);
 
-        process_stock_movement(self::$pdo, $id, 'Entree', 10, 'Réception test 1', 1, 1, null, null, 100.0);
+        process_stock_movement(self::$pdo, $id, 'ENTREE', 10, 'Réception test 1', 1, 1, null, null, 100.0);
         $cump1 = (float)self::$pdo->query("SELECT cump FROM articles WHERE id = $id")->fetchColumn();
         self::assertSame(100.0, $cump1, 'CUMP après 1re entrée au coût 100.');
 
-        process_stock_movement(self::$pdo, $id, 'Entree', 10, 'Réception test 2', 1, 1, null, null, 150.0);
+        process_stock_movement(self::$pdo, $id, 'ENTREE', 10, 'Réception test 2', 1, 1, null, null, 150.0);
         $cump2 = (float)self::$pdo->query("SELECT cump FROM articles WHERE id = $id")->fetchColumn();
         self::assertSame(125.0, $cump2, 'CUMP attendu : (10×100 + 10×150) / 20 = 125.');
     }
@@ -55,7 +55,7 @@ final class ValorisationCumpTest extends PHPUnit\Framework\TestCase
     {
         $id = $this->creerArticle(80.0);
 
-        process_stock_movement(self::$pdo, $id, 'Entree', 5, 'Mouvement manuel', 1, 1);
+        process_stock_movement(self::$pdo, $id, 'ENTREE', 5, 'Mouvement manuel', 1, 1);
         $cump = (float)self::$pdo->query("SELECT cump FROM articles WHERE id = $id")->fetchColumn();
         self::assertSame(80.0, $cump, 'Fallback : prix_achat de la fiche article.');
     }
@@ -64,8 +64,8 @@ final class ValorisationCumpTest extends PHPUnit\Framework\TestCase
     {
         $id = $this->creerArticle(60.0);
 
-        process_stock_movement(self::$pdo, $id, 'Entree', 20, 'Achat', 1, 1, null, null, 60.0);
-        process_stock_movement(self::$pdo, $id, 'Vente', 5, 'Vente test', 1, 1);
+        process_stock_movement(self::$pdo, $id, 'ENTREE', 20, 'Achat', 1, 1, null, null, 60.0);
+        process_stock_movement(self::$pdo, $id, 'VENTE', 5, 'Vente test', 1, 1);
 
         $cump = (float)self::$pdo->query("SELECT cump FROM articles WHERE id = $id")->fetchColumn();
         self::assertSame(60.0, $cump, 'Une vente ne doit pas modifier le coût moyen pondéré.');

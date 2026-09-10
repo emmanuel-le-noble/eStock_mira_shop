@@ -379,6 +379,46 @@ CREATE TABLE `employes` (
 -- --------------------------------------------------------
 
 --
+-- Structure de la table `equipes`
+--
+
+CREATE TABLE `equipes` (
+  `id` int(11) NOT NULL,
+  `nom` varchar(150) NOT NULL,
+  `description` text DEFAULT NULL,
+  `type` enum('BOUTIQUE','USINE','LIVRAISON','ACHATS','LOGISTIQUE','CAISSE','AUTRE') NOT NULL DEFAULT 'BOUTIQUE',
+  `chef_equipe_id` int(11) DEFAULT NULL COMMENT 'ID utilisateur chef déquipe',
+  `actif` tinyint(1) NOT NULL DEFAULT 1,
+  `date_creation` datetime NOT NULL DEFAULT current_timestamp(),
+  `date_modification` datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `user_equipes`
+--
+
+CREATE TABLE `user_equipes` (
+  `user_id` int(11) NOT NULL,
+  `equipe_id` int(11) NOT NULL,
+  `date_attribution` datetime NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `equipe_magasins`
+--
+
+CREATE TABLE `equipe_magasins` (
+  `equipe_id` int(11) NOT NULL,
+  `magasin_id` int(11) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Structure de la table `factures`
 --
 
@@ -806,8 +846,14 @@ CREATE TABLE `mouvements_stock` (
   `article_id` int(11) NOT NULL,
   `utilisateur_id` int(11) DEFAULT NULL,
   `magasin_id` int(11) DEFAULT NULL,
-  `type` enum('Entree','Sortie','Vente','Transfert','Ajustement','Retour_stock','Production','Perte_production') NOT NULL,
+  `type` enum('Entree','Sortie','Vente','Transfert','Ajustement','Retour_stock','RECEPTION','PERTE','PRODUCTION','Perte_production') NOT NULL,
   `quantite` int(11) NOT NULL DEFAULT 0,
+  `stock_avant` int(11) DEFAULT NULL,
+  `stock_apres` int(11) DEFAULT NULL,
+  `cout_unitaire` decimal(14,4) DEFAULT NULL,
+  `reference_type` varchar(50) DEFAULT NULL,
+  `reference_id` int(11) DEFAULT NULL,
+  `lot_id` int(11) DEFAULT NULL,
   `date_mouvement` datetime NOT NULL DEFAULT current_timestamp(),
   `motif` varchar(255) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -1012,7 +1058,14 @@ INSERT INTO `permissions` (`id`, `cle_permission`, `description`, `categorie`) V
 (148, 'transferts_gerer', 'Effectuer les transferts inter-magasins', 'Stock'),
 (149, 'exports_consulter', 'Consulter les exports', 'Rapports'),
 (150, 'suggestions_consulter', 'Consulter les suggestions d achat', 'Achats'),
-(151, 'impression_consulter', 'Consulter les impressions', 'Impression');
+(151, 'impression_consulter', 'Consulter les impressions', 'Impression'),
+(152, 'equipes_consulter', 'Consulter les équipes', 'Administration'),
+(153, 'equipes_gerer', 'Gérer les équipes (CRUD + affectations)', 'Administration'),
+(154, 'retards_consulter', 'Consulter les retards du personnel', 'Usine'),
+(155, 'absences_consulter', 'Consulter les absences du personnel', 'Usine'),
+(156, 'stock_usine_consulter', 'Consulter le stock usine', 'Usine'),
+(157, 'transferts_magasins_gerer', 'Effectuer les transferts inter-magasins', 'Stock'),
+(158, 'stock_usine_transfert', 'Transférer du stock usine vers magasin', 'Usine');
 
 -- --------------------------------------------------------
 
@@ -1094,6 +1147,9 @@ CREATE TABLE `productions` (
   `date_fin` datetime DEFAULT NULL,
   `utilisateur_id` int(11) DEFAULT NULL COMMENT 'Responsable de production',
   `notes` text DEFAULT NULL,
+  `rendement_pct` decimal(8,4) DEFAULT NULL COMMENT 'Rendement basé sur les quantités',
+  `rendement_cout` decimal(8,4) DEFAULT NULL COMMENT 'Rendement basé sur les coûts',
+  `quantite_defectueuse` int(11) DEFAULT 0 COMMENT 'Produits défectueux (réparables)',
   `date_creation` datetime NOT NULL DEFAULT current_timestamp(),
   `date_modification` datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -1142,6 +1198,8 @@ CREATE TABLE `production_matieres` (
   `quantite_prevue` decimal(12,4) NOT NULL DEFAULT 0.0000,
   `quantite_reelle` decimal(12,4) NOT NULL DEFAULT 0.0000,
   `unite` varchar(20) NOT NULL DEFAULT 'KG',
+  `numero_lot` varchar(100) DEFAULT NULL COMMENT 'Lot de matière première consommé',
+  `lot_id` int(11) DEFAULT NULL COMMENT 'FK vers article_lots si applicable',
   `cout_unitaire` decimal(14,4) NOT NULL DEFAULT 0.0000 COMMENT 'Coût unitaire de référence au moment de la production',
   `cout_total` decimal(14,2) NOT NULL DEFAULT 0.00 COMMENT 'quantite_reelle × cout_unitaire'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -1156,6 +1214,7 @@ CREATE TABLE `production_pertes` (
   `id` int(11) NOT NULL,
   `production_id` int(11) NOT NULL,
   `type_perte` enum('matiere_premiere','produit_non_conforme','casse','defaut_machine','erreur_operateur','rebut','autre') NOT NULL,
+  `categorie_perte_id` int(11) DEFAULT NULL COMMENT 'FK vers categories_pertes_production',
   `article_id` int(11) NOT NULL COMMENT 'Article concerné (matière ou produit)',
   `quantite` decimal(12,4) NOT NULL DEFAULT 0.0000,
   `unite` varchar(20) NOT NULL DEFAULT 'KG',
@@ -2769,6 +2828,32 @@ ALTER TABLE `transferts_stock`
   ADD CONSTRAINT `fk_tr_user` FOREIGN KEY (`utilisateur_id`) REFERENCES `utilisateurs` (`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 --
+-- Contraintes pour la table `equipes`
+--
+ALTER TABLE `equipes`
+  ADD CONSTRAINT `fk_eq_chef` FOREIGN KEY (`chef_equipe_id`) REFERENCES `utilisateurs` (`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+
+--
+-- Contraintes pour la table `user_equipes`
+--
+ALTER TABLE `user_equipes`
+  ADD CONSTRAINT `fk_ue_user` FOREIGN KEY (`user_id`) REFERENCES `utilisateurs` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  ADD CONSTRAINT `fk_ue_equipe` FOREIGN KEY (`equipe_id`) REFERENCES `equipes` (`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+--
+-- Contraintes pour la table `equipe_magasins`
+--
+ALTER TABLE `equipe_magasins`
+  ADD CONSTRAINT `fk_em_equipe` FOREIGN KEY (`equipe_id`) REFERENCES `equipes` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  ADD CONSTRAINT `fk_em_magasin` FOREIGN KEY (`magasin_id`) REFERENCES `magasins` (`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+--
+-- Contraintes pour la table `role_permissions`
+--
+ALTER TABLE `role_permissions`
+  ADD CONSTRAINT `fk_rp_role_code` FOREIGN KEY (`role_nom`) REFERENCES `roles` (`code`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+--
 -- Contraintes pour la table `user_roles`
 --
 ALTER TABLE `user_roles`
@@ -2781,6 +2866,145 @@ ALTER TABLE `user_roles`
 ALTER TABLE `utilisateurs`
   ADD CONSTRAINT `fk_user_magasin` FOREIGN KEY (`magasin_id`) REFERENCES `magasins` (`id`) ON DELETE SET NULL ON UPDATE CASCADE,
   ADD CONSTRAINT `fk_user_role_id` FOREIGN KEY (`role_id`) REFERENCES `roles` (`id`) ON UPDATE CASCADE;
+
+--
+-- Contraintes pour la table `production_pertes`
+--
+ALTER TABLE `production_pertes`
+  ADD CONSTRAINT `fk_pp_categorie` FOREIGN KEY (`categorie_perte_id`) REFERENCES `categories_pertes_production` (`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `usines`
+--
+
+CREATE TABLE `usines` (
+  `id` int(11) NOT NULL,
+  `code` varchar(30) NOT NULL,
+  `nom` varchar(150) NOT NULL,
+  `description` text DEFAULT NULL,
+  `adresse` varchar(255) DEFAULT NULL,
+  `actif` tinyint(1) NOT NULL DEFAULT 1,
+  `date_creation` datetime NOT NULL DEFAULT current_timestamp(),
+  `date_modification` datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `user_magasins`
+--
+
+CREATE TABLE `user_magasins` (
+  `user_id` int(11) NOT NULL,
+  `magasin_id` int(11) NOT NULL,
+  `date_debut` datetime NOT NULL DEFAULT current_timestamp(),
+  `date_fin` datetime DEFAULT NULL,
+  `actif` tinyint(1) NOT NULL DEFAULT 1
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `equipe_membres`
+--
+
+CREATE TABLE `equipe_membres` (
+  `equipe_id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL,
+  `date_debut` datetime NOT NULL DEFAULT current_timestamp(),
+  `date_fin` datetime DEFAULT NULL,
+  `actif` tinyint(1) NOT NULL DEFAULT 1
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `unites_mesure`
+--
+
+CREATE TABLE `unites_mesure` (
+  `id` int(11) NOT NULL,
+  `code` varchar(20) NOT NULL,
+  `nom` varchar(100) NOT NULL,
+  `categorie` enum('MASSIQUE','VOLUMIQUE','UNITE','LONGUEUR','AUTRE') NOT NULL DEFAULT 'UNITE',
+  `facteur_conversion` decimal(14,6) DEFAULT NULL,
+  `actif` tinyint(1) NOT NULL DEFAULT 1
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Données de la table `usines`
+--
+
+INSERT INTO `usines` (`id`, `code`, `nom`, `description`, `adresse`, `actif`, `date_creation`, `date_modification`) VALUES
+(1, 'USINE-1', 'Usine Principale', 'Migrated from magasins type USINE', NULL, 1, '2026-09-10 00:00:00', '2026-09-10 00:00:00');
+
+--
+-- Données de la table `unites_mesure`
+--
+
+INSERT INTO `unites_mesure` (`id`, `code`, `nom`, `categorie`, `facteur_conversion`, `actif`) VALUES
+(1, 'KG', 'Kilogramme', 'MASSIQUE', 1.000000, 1),
+(2, 'G', 'Gramme', 'MASSIQUE', 0.001000, 1),
+(3, 'L', 'Litre', 'VOLUMIQUE', 1.000000, 1),
+(4, 'ML', 'Millilitre', 'VOLUMIQUE', 0.001000, 1),
+(5, 'UNITE', 'Unité', 'UNITE', 1.000000, 1),
+(6, 'CARTON', 'Carton', 'UNITE', NULL, 1),
+(7, 'SAC', 'Sac', 'UNITE', NULL, 1),
+(8, 'BOTTE', 'Botte', 'UNITE', NULL, 1),
+(9, 'CAISSE', 'Caisse', 'UNITE', NULL, 1);
+
+--
+-- Index pour les nouvelles tables
+--
+
+ALTER TABLE `usines`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `uk_usine_code` (`code`);
+
+ALTER TABLE `user_magasins`
+  ADD PRIMARY KEY (`user_id`, `magasin_id`),
+  ADD KEY `fk_um_magasin` (`magasin_id`);
+
+ALTER TABLE `equipe_membres`
+  ADD PRIMARY KEY (`equipe_id`, `user_id`),
+  ADD KEY `fk_emb_user` (`user_id`);
+
+ALTER TABLE `unites_mesure`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `uk_unite_code` (`code`);
+
+--
+-- Index supplémentaires pour mouvements_stock
+--
+
+ALTER TABLE `mouvements_stock`
+  ADD KEY `idx_mvt_art_mag_date` (`article_id`, `magasin_id`, `date_mouvement`),
+  ADD KEY `idx_mvt_ref` (`reference_type`, `reference_id`);
+
+--
+-- Contraintes pour les nouvelles tables
+--
+
+ALTER TABLE `user_magasins`
+  ADD CONSTRAINT `fk_um_user` FOREIGN KEY (`user_id`) REFERENCES `utilisateurs` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  ADD CONSTRAINT `fk_um_magasin` FOREIGN KEY (`magasin_id`) REFERENCES `magasins` (`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+ALTER TABLE `equipe_membres`
+  ADD CONSTRAINT `fk_emb_equipe` FOREIGN KEY (`equipe_id`) REFERENCES `equipes` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  ADD CONSTRAINT `fk_emb_user` FOREIGN KEY (`user_id`) REFERENCES `utilisateurs` (`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- --------------------------------------------------------
+
+--
+-- Contraintes pour la table `commandes_fournisseur`
+--
+ALTER TABLE `commandes_fournisseur`
+  ADD CONSTRAINT `fk_cf_fournisseur` FOREIGN KEY (`fournisseur_id`) REFERENCES `fournisseurs` (`id`) ON UPDATE CASCADE,
+  ADD CONSTRAINT `fk_cf_magasin` FOREIGN KEY (`magasin_id`) REFERENCES `magasins` (`id`) ON UPDATE CASCADE,
+  ADD CONSTRAINT `fk_cf_user` FOREIGN KEY (`utilisateur_id`) REFERENCES `utilisateurs` (`id`) ON UPDATE CASCADE;
+
 COMMIT;
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;

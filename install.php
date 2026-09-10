@@ -19,15 +19,20 @@
 $envFile = __DIR__ . '/.env';
 $installed = false;
 
+// Vérifier le fichier verrou d'installation
+if (is_file(__DIR__ . '/.installed')) {
+    $installed = true;
+}
+
 // Verifier si le fichier .env contient les cles requises ET qu'un admin existe
-if (is_file($envFile)) {
+if (!$installed && is_file($envFile)) {
     $envContent = file_get_contents($envFile);
     if (preg_match('/^SECRET_URL_KEY\s*=\s*.{32,}$/m', $envContent)) {
         // Essayer de se connecter et verifier l'existence d'un admin
         try {
             require_once __DIR__ . '/config/connexion.php';
             if (function_exists('db_user_get_by_login') && function_exists('db_magasins_list_all')) {
-                $admins = $pdo->query("SELECT COUNT(*) FROM utilisateurs u JOIN roles r ON r.id = u.role_id WHERE r.code IN ('PROPRIETAIRE','ADMIN','chef équipe','Admin') AND u.actif = 1")->fetchColumn();
+                $admins = $pdo->query("SELECT COUNT(*) FROM utilisateurs u JOIN roles r ON r.id = u.role_id WHERE r.code IN ('PROPRIETAIRE','ADMIN') AND u.actif = 1")->fetchColumn();
                 $magasins = $pdo->query("SELECT COUNT(*) FROM magasins WHERE actif = 1")->fetchColumn();
                 if ($admins > 0 && $magasins > 0) {
                     $installed = true;
@@ -100,11 +105,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         // ---- ETAPE 2 : Configuration DB ----
         if ($etape === 2) {
-            $db_host = trim($_POST['db_host'] ?? '127.0.0.1');
+            $db_host = preg_replace('/[^a-zA-Z0-9._:-]/', '', trim($_POST['db_host'] ?? '127.0.0.1'));
             $db_name = preg_replace('/[^a-zA-Z0-9_]/', '', trim($_POST['db_name'] ?? 'estock_db'));
             $db_user = trim($_POST['db_user'] ?? 'root');
             $db_pass = $_POST['db_pass'] ?? '';
             $db_charset = 'utf8mb4';
+
+            if ($db_host === '') {
+                $db_host = '127.0.0.1';
+            }
 
             if ($db_name === '') {
                 $erreur = "Nom de base de données invalide.";
@@ -153,13 +162,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
                         $testPdo->exec("SET FOREIGN_KEY_CHECKS = 1");
 
-                        // Appliquer la migration corrective
-                        $migrationFile = __DIR__ . '/database/migration_fix_2026_08_22.sql';
-                        if (is_file($migrationFile)) {
-                            $migration = file_get_contents($migrationFile);
+                        // Appliquer toutes les migrations dans l'ordre chronologique
+                        $migrationFiles = [
+                            '/database/migration_fix_2026_08_22.sql',
+                            '/database/migration_google_oauth_2026_08_27.sql',
+                            '/database/migration_rename_directeur_2026_08_28.sql',
+                            '/database/migration_usine_production_2026_09_04.sql',
+                            '/database/migration_rbac_usine_independante_2026_09_04.sql',
+                            '/database/migration_prix_dynamiques_receptions_2026_09_04.sql',
+                            '/database/migration_tracabilite_usine_2026_09_08.sql',
+                            '/database/migration_nettoyage_tables_inutiles_2026_09_10.sql',
+                            '/database/migration_consolidation_2026_09_10.sql',
+                            '/database/migration_architecture_2026_09_10.sql',
+                        ];
+                        foreach ($migrationFiles as $migFile) {
+                            $fullPath = __DIR__ . $migFile;
+                            if (!is_file($fullPath)) continue;
+                            $migration = file_get_contents($fullPath);
+                            $testPdo->exec("SET FOREIGN_KEY_CHECKS = 0");
                             $migStatements = array_filter(
                                 array_map('trim', explode(';', $migration)),
-                                fn($s) => !empty($s) && !str_starts_with($s, '--')
+                                fn($s) => !empty($s) && !str_starts_with($s, '--') && $s !== 'SET FOREIGN_KEY_CHECKS = 0' && $s !== 'SET FOREIGN_KEY_CHECKS = 1'
                             );
                             foreach ($migStatements as $stmt) {
                                 $cleaned = preg_replace('/^\s*--.*$/m', '', $stmt);
@@ -168,21 +191,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     try {
                                         $testPdo->exec($cleaned);
                                     } catch (\Throwable $e) {
-                                        error_log('[INSTALL] Migration non-critique ignorée: ' . $e->getMessage());
+                                        error_log('[INSTALL] Migration ' . basename($migFile) . ' ignorée: ' . $e->getMessage());
                                     }
                                 }
                             }
+                            $testPdo->exec("SET FOREIGN_KEY_CHECKS = 1");
                         }
                     }
                 }
 
                 // Ecrire le fichier .env
                 $secretKey = bin2hex(random_bytes(32));
+                // Échapper les caractères spéciaux dans le mot de passe pour le .env
+                $db_pass_escaped = str_replace(['"', "\n", "\r"], ['\\"', '', ''], $db_pass);
                 $envContent = "APP_ENV=production\n"
                     . "DB_HOST=$db_host\n"
                     . "DB_NAME=$db_name\n"
                     . "DB_USER=$db_user\n"
-                    . "DB_PASS=$db_pass\n"
+                    . "DB_PASS=\"$db_pass_escaped\"\n"
                     . "SECRET_URL_KEY=$secretKey\n";
 
                 if (file_put_contents($envFile, $envContent) === false) {
@@ -199,7 +225,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     exit;
                 }
             } catch (\Throwable $e) {
-                $erreur = "Connexion echouee : " . $e->getMessage();
+                error_log('[INSTALL] Erreur connexion: ' . $e->getMessage());
+                $erreur = "Connexion à la base de données échouée. Vérifiez les paramètres.";
             }
         }
 
@@ -265,10 +292,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         ]);
                         $magasinId = (int)$pdo->lastInsertId();
 
-                        // Creer l'admin
+                        // Creer l'admin avec role_id (RBAC dynamique)
                         $mdpHash = password_hash($mdp, PASSWORD_DEFAULT);
-                        $stmtUser = $pdo->prepare("INSERT INTO utilisateurs (nom, login, mot_de_passe, role, actif, magasin_id) VALUES (?, ?, ?, 'chef équipe', 1, ?)");
-                        $stmtUser->execute([$nom, $login, $mdpHash, $magasinId]);
+
+                        // S'assurer que le role PROPRIETAIRE existe
+                        $pdo->exec("INSERT IGNORE INTO roles (code, nom, description) VALUES ('PROPRIETAIRE', 'Propriétaire', 'Accès total au système')");
+
+                        // Récupérer l'id du rôle PROPRIETAIRE
+                        $roleId = $pdo->query("SELECT id FROM roles WHERE code = 'PROPRIETAIRE'")->fetchColumn();
+                        $roleId = (int)($roleId ?: 1);
+
+                        $stmtUser = $pdo->prepare("INSERT INTO utilisateurs (nom, login, mot_de_passe, role_id, actif, magasin_id) VALUES (?, ?, ?, ?, 1, ?)");
+                        $stmtUser->execute([$nom, $login, $mdpHash, $roleId, $magasinId]);
+                        $userId = (int)$pdo->lastInsertId();
+
+                        // Associer l'utilisateur au rôle PROPRIETAIRE
+                        $pdo->prepare("INSERT IGNORE INTO user_roles (user_id, role_id) VALUES (?, ?)")->execute([$userId, $roleId]);
+
+                        // Associer l'utilisateur au magasin
+                        $pdo->prepare("INSERT IGNORE INTO user_magasins (user_id, magasin_id, date_debut, actif) VALUES (?, ?, NOW(), 1)")->execute([$userId, $magasinId]);
 
                         // Inserer les permissions manquantes (migration)
                         try {
@@ -279,16 +321,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 ('conformite_export_syscohada', 'Exporter en format SYSCOHADA', 'Conformite'),
                                 ('articles_modifier', 'Modifier les articles via l''API', 'Articles')");
 
+                            // Utiliser les codes de rôles du RBAC dynamique
                             $pdo->exec("INSERT IGNORE INTO role_permissions (role_nom, permission_id)
-                                SELECT 'chef équipe', p.id FROM permissions p
+                                SELECT 'PROPRIETAIRE', p.id FROM permissions p
                                 WHERE p.cle_permission IN ('clients_consulter','clients_gerer','conformite_archives','conformite_export_syscohada','articles_modifier')");
 
                             $pdo->exec("INSERT IGNORE INTO role_permissions (role_nom, permission_id)
-                                SELECT 'Admin', p.id FROM permissions p
+                                SELECT 'ADMIN', p.id FROM permissions p
                                 WHERE p.cle_permission IN ('clients_consulter','clients_gerer','articles_modifier')");
 
                             $pdo->exec("INSERT IGNORE INTO role_permissions (role_nom, permission_id)
-                                SELECT 'Magasinier', p.id FROM permissions p
+                                SELECT 'MAGASINIER', p.id FROM permissions p
                                 WHERE p.cle_permission = 'articles_modifier'");
                         } catch (\Throwable $e) {
                             // Non-critique
@@ -297,11 +340,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         // Nettoyer la session
                         unset($_SESSION['install_db'], $_SESSION['install_magasin'], $_SESSION['install_csrf']);
 
+                        // Créer un fichier verrou pour empêcher la ré-exécution
+                        file_put_contents(__DIR__ . '/.installed', date('c') . ' - ' . $login . "\n");
+
                         header('Location: install.php?etape=5');
                         exit;
                     }
                 } catch (\Throwable $e) {
-                    $erreur = "Erreur lors de la creation : " . $e->getMessage();
+                    error_log('[INSTALL] Erreur creation: ' . $e->getMessage());
+                    $erreur = "Erreur lors de la création du compte administrateur.";
                 }
             }
         }

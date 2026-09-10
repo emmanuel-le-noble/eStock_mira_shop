@@ -38,10 +38,7 @@ if (!est_connecte()) {
         exit('Accès non autorisé.');
     }
 } else {
-    // Autorise si la permission RBAC existe OU si l'utilisateur possède un rôle habilit
-    $role_valide = in_array(user_role(), [ROLE_DIRECTEUR, ROLE_ADMIN, ROLE_VENDEUR], true);
-         
-    if (!peut('facturation_consulter') && !peut('caisse_gerer') && !$role_valide) {
+    if (!peut('facturation_consulter') && !peut('caisse_gerer')) {
         http_response_code(403);
         exit('Droits insuffisants.');
     }
@@ -54,8 +51,8 @@ if (!$facture) {
     exit('Facture introuvable.');
 }
 
-// Un Vendeur connecté ne peut imprimer que ses propres factures (même règle que facture_view.php)
-if (est_connecte() && user_role() === ROLE_VENDEUR
+// Un vendeur (sans facturation_gerer) ne peut imprimer que ses propres factures
+if (est_connecte() && !peut('facturation_gerer')
     && (int)($facture['utilisateur_id'] ?? 0) !== (int)(user_courant()['id'] ?? 0)) {
     http_response_code(403);
     exit('Accès non autorisé.');

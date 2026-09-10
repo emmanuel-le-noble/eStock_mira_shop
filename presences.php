@@ -178,7 +178,7 @@ include __DIR__ . '/includes/header.php';
     </div>
 </div>
 
-<script nonce="<?= csp_nonce_val() ?>">
+<script nonce="<?= csp_nonce() ?>">
 document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('datePicker').addEventListener('change', function() {
         window.location.href = 'presences.php?date=' + this.value;

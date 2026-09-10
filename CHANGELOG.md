@@ -6,6 +6,26 @@ sémantique (SemVer). La version courante est définie par `APP_VERSION` (`confi
 
 ## [Non publié] — En cours
 
+### 2026-09-10 — Nettoyage ciblé du schéma (Option B : Usine conservée)
+
+#### Supprimé (base de données)
+Migration `database/migration_nettoyage_tables_inutiles_2026_09_10.sql` — base réduite de **64 → 58 tables** :
+
+| Table supprimée | Raison |
+|---|---|
+| `mouvements_matieres_premieres` | Jamais lue — stock MP déjà dans `stock_matieres_premieres` |
+| `mouvements_produits_finis` | Doublon de `mouvements_stock` (types `Production` / `Perte_production`) |
+| `presences_employes_audit` | Doublon d'audit — `logs_activite` / `suivre_activite()` centralisent déjà l'audit |
+| `production_produits` | Doublon de la table `productions` (`article_id`, `quantite_produite`, `quantite_perdue`) |
+| `production_employes` | Liaison jamais connectée au formulaire de fabrication |
+| `production_lots` | Table orpheline avec bug `NOT NULL` sans défaut sur `magasin_id` — lots gérés dans `article_lots` |
+
+#### Modifié (code)
+- `includes/usine_functions.php` : stubs `db_mouvement_mp_insert` / `db_mouvement_pf_insert` annotés comme tables supprimées ; appel mort à `db_mouvement_pf_insert` dans `db_production_cloturer` retiré.
+- `tests/Integration/UsineProductionTest.php` : assertions sur `$prod['lots']` adaptées (vide attendu, table supprimée).
+
+---
+
 ### Renommages / suppressions (cadre local) — ancien → nouveau
 
 | Ancien | Nouveau | Type |

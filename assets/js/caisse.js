@@ -181,7 +181,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         var queue = getPendingSales();
         var pending = queue.filter(function (s) { return s.statut === 'pending'; });
-        if (pending.length === 0) return;
+        if (pending.length === 0) { _syncEnCours = false; return; }
 
         alerter('Synchronisation de ' + pending.length + ' vente(s) en attente...', 'info');
 
@@ -642,15 +642,18 @@ document.addEventListener('DOMContentLoaded', function () {
 
     var modifierQte = function modifierQte(id, delta) {
         if (!panier[id]) return;
-        var nouvelleQte = panier[id].qte + delta;
+        // Pour les articles au poids, utiliser un pas de 0.05 au lieu de 1
+        var estPoids = !!panier[id].article.vente_au_poids;
+        var step = estPoids ? 0.05 : 1;
+        var nouvelleQte = Math.round((panier[id].qte + delta * step) * 100) / 100;
         if (nouvelleQte <= 0) {
             delete panier[id];
         } else if (nouvelleQte > panier[id].article.stock_dispo) {
             alerter('Stock maximum atteint pour ' + panier[id].article.nom, 'warning');
             return;
         } else {
-            panier[id].qte += delta;
-            panier[id].qte_interne += delta;
+            panier[id].qte = nouvelleQte;
+            panier[id].qte_interne = estPoids ? Math.round(nouvelleQte * 1000) : nouvelleQte;
             // Recalculer le prix selon la nouvelle quantité (tarification dynamique)
             var prixCalc = calculerPrixDynamique(panier[id].article, panier[id].qte);
             panier[id].article.prix_unitaire = prixCalc.prix_vente;
@@ -748,10 +751,10 @@ document.addEventListener('DOMContentLoaded', function () {
     if (quickPayContainer) {
         quickPayContainer.addEventListener('click', function (e) {
             var btn = e.target.closest('.btn-quick-pay');
-            if (!btn) return;
+            if (!btn || !inpMontantPaye) return;
 
             if (btn.dataset.type === 'exact') {
-                var raw = totalTtcEl.dataset.raw || '';
+                var raw = (totalTtcEl && totalTtcEl.dataset) ? totalTtcEl.dataset.raw || '' : '';
                 inpMontantPaye.value = raw;
             } else if (btn.dataset.type === 'amount') {
                 inpMontantPaye.value = btn.dataset.amount;

@@ -48,8 +48,21 @@ function sql_tables_altered(string $sql): array {
     return $tables;
 }
 
+/**
+ * Tables supprimées par DROP TABLE.
+ */
+function sql_tables_dropped(string $sql): array {
+    $tables = [];
+    preg_match_all('/DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?`?([A-Za-z0-9_]+)`?/i', $sql, $m, PREG_SET_ORDER);
+    foreach ($m as $match) {
+        $tables[] = $match[1];
+    }
+    return $tables;
+}
+
 $dirs    = [__DIR__ . '/../database'];
 $created = [];
+$dropped = [];
 foreach ($dirs as $dir) {
     $files = glob(rtrim($dir, '/\\') . '/*.sql');
     sort($files);
@@ -58,7 +71,18 @@ foreach ($dirs as $dir) {
         foreach (sql_tables_created($sql) as $t) {
             $created[$t] = ($created[$t] ?? 0) + 1;
         }
+        // Identifier les DROP TABLE des scripts de migration (qui ne recréent pas la table après)
+        if (basename($file) !== 'estock_db.sql') {
+            foreach (sql_tables_dropped($sql) as $t) {
+                if (!preg_match('/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?`?' . preg_quote($t, '/') . '`?\s*\(/i', $sql)) {
+                    $dropped[$t] = true;
+                }
+            }
+        }
     }
+}
+foreach (array_keys($dropped) as $t) {
+    unset($created[$t]);
 }
 ksort($created);
 

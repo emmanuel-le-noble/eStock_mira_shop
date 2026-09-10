@@ -1,8 +1,5 @@
-/vendor/
-composer.lock
-.env
 
-# Fichiers générés à l'exécution
+# Fichiers generes a l'execution
 /backups/
 /logs/
 /archives/
@@ -11,3 +8,21 @@ composer.lock
 inspect_*.php
 nul
 NUL
+
+# Dependances
+/vendor/
+composer.lock
+
+# Environnement
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+.DS_Store

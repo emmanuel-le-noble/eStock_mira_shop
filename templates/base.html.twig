@@ -28,8 +28,25 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <link href="{{ base_url }}assets/css/style.css" rel="stylesheet">
+    {# CDN fallback : si le CDN est indisponible, utiliser les fichiers locaux #}
+    <script nonce="{{ csp_nonce_val }}">
+    (function(){
+        function fallbackCDN(cdnUrl, localUrl, integrity) {
+            var link = document.querySelector('link[href="' + cdnUrl + '"]');
+            if (link) {
+                link.onerror = function() {
+                    link.href = localUrl;
+                };
+            }
+        }
+        fallbackCDN(
+            'https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css',
+            '{{ base_url }}vendor/bootstrap.min.css'
+        );
+    })();
+    </script>
     <link rel="icon" type="image/x-icon" href="{{ base_url }}assets/images/logo-eStock.ico">
-    <style>
+    <style nonce="{{ csp_nonce_val }}">
         :root {
             --brand: {{ theme_vars[0]|escape('css') }};
             --brand-2: {{ theme_vars[1]|escape('css') }};
@@ -43,138 +60,8 @@
 {% if is_logged_in %}
 <div class="app-shell">
 
-    <!-- ============ SIDEBAR ============ -->
-    <aside class="sidebar" id="sidebar">
-        <div class="sidebar-brand">
-            <img src="{{ base_url }}assets/images/logo-eStock-3.png" alt="Logo {{ app_nom }}" class="logo-img">
-            <span class="brand-text">{{ app_nom }}</span>
-        </div>        <nav class="sidebar-nav">
-
-            {# ── Construction des sections ── #}
-            {% set sections = [] %}
-
-            {# PILOTAGE #}
-            {% set items_pilotage = [{'slug': 'tableau_bord', 'label': 'Accueil', 'icon': 'bi-speedometer2', 'color': 'clr-indigo'}] %}
-            {% if can_admin %}
-                {% set items_pilotage = items_pilotage|merge([{'slug': 'statistiques', 'label': 'Statistiques', 'icon': 'bi-graph-up', 'color': 'clr-indigo'}]) %}
-            {% endif %}
-            {% set items_pilotage = items_pilotage|merge([{'slug': 'documentation', 'label': 'Documentation', 'icon': 'bi-journal-bookmark', 'color': 'clr-indigo'}]) %}
-            {% set sections = sections|merge([{'key': 'pilotage', 'titre': 'Pilotage', 'icon': 'bi-speedometer2', 'items': items_pilotage}]) %}
-
-            {# STOCK & ACHATS #}
-            {% set items_stock = [] %}
-            {% if can_manage_stock %}
-                {% set items_stock = items_stock|merge([
-                    {'slug': 'stock', 'label': 'Stock', 'icon': 'bi-boxes', 'color': 'clr-emerald'},
-                    {'slug': 'articles', 'label': 'Articles', 'icon': 'bi-box-seam', 'color': 'clr-emerald'}
-                ]) %}
-                {% if peut('articles_gerer') %}
-                    {% set items_stock = items_stock|merge([{'slug': 'categories', 'label': 'Catégories', 'icon': 'bi-tags', 'color': 'clr-emerald'}]) %}
-                {% endif %}
-                {% set items_stock = items_stock|merge([{'slug': 'fournisseurs', 'label': 'Fournisseurs', 'icon': 'bi-truck', 'color': 'clr-emerald'}]) %}
-                {% if peut('achats_consulter') %}
-                    {% set items_stock = items_stock|merge([{'slug': 'commandes_fournisseur', 'label': "Commandes d'achat", 'icon': 'bi-cart-plus', 'color': 'clr-emerald'}]) %}
-                {% endif %}
-                {% if peut('inventaire_consulter') %}
-                    {% set items_stock = items_stock|merge([{'slug': 'inventaire', 'label': 'Inventaire', 'icon': 'bi-clipboard-check', 'color': 'clr-emerald'}]) %}
-                {% endif %}
-                {% set items_stock = items_stock|merge([
-                    {'slug': 'mouvements', 'label': 'Mouvements', 'icon': 'bi-arrow-left-right', 'color': 'clr-emerald'},
-                    {'slug': 'peremptions', 'label': 'Péremptions', 'icon': 'bi-calendar-week', 'color': 'clr-emerald', 'badge': nb_alertes_peremption|default(0)},
-                    {'slug': 'suggestions_achat', 'label': "Suggestions d'achat", 'icon': 'bi-bag-check', 'color': 'clr-emerald', 'badge': nb_alertes_topbar|default(0)}
-                ]) %}
-                {% if peut('tarification_consulter') %}
-                    {% set items_stock = items_stock|merge([{'slug': 'tarification', 'label': 'Tarification', 'icon': 'bi-currency-exchange', 'color': 'clr-emerald'}]) %}
-                {% endif %}
-                {% if current_role in ['chef équipe', 'Admin', 'Magasinier'] %}
-                    {% set items_stock = items_stock|merge([
-                        {'slug': 'etiquettes', 'label': 'Étiquettes rayon', 'icon': 'bi-tag', 'color': 'clr-emerald'},
-                        {'slug': 'transferts', 'label': 'Transferts', 'icon': 'bi-arrow-repeat', 'color': 'clr-emerald'}
-                    ]) %}
-                {% endif %}
-            {% endif %}
-            {% if items_stock|length > 0 %}
-                {% set sections = sections|merge([{'key': 'stock', 'titre': 'Stock & Achats', 'icon': 'bi-boxes', 'items': items_stock}]) %}
-            {% endif %}
-
-            {# VENTES & CAISSE #}
-            {% set items_ventes = [] %}
-            {% if can_bill %}
-                {% set items_ventes = items_ventes|merge([
-                    {'slug': 'caisse', 'label': 'Caisse (POS)', 'icon': 'bi-cash-coin', 'color': 'clr-sky'},
-                    {'slug': 'factures', 'label': 'Factures', 'icon': 'bi-receipt', 'color': 'clr-sky'}
-                ]) %}
-                {% if peut('retours_consulter') %}
-                    {% set items_ventes = items_ventes|merge([{'slug': 'retours', 'label': 'Retours / SAV', 'icon': 'bi-arrow-counterclockwise', 'color': 'clr-sky'}]) %}
-                {% endif %}
-                {% if peut('promotions_consulter') %}
-                    {% set items_ventes = items_ventes|merge([{'slug': 'promotions', 'label': 'Promotions & Remises', 'icon': 'bi-percent', 'color': 'clr-sky'}]) %}
-                {% endif %}
-                {% set items_ventes = items_ventes|merge([{'slug': 'cloture', 'label': 'Clôture de Caisse', 'icon': 'bi-lock-fill', 'color': 'clr-sky'}]) %}
-                {% if peut('clients_consulter') %}
-                    {% set items_ventes = items_ventes|merge([{'slug': 'clients', 'label': 'Clients & fidélité', 'icon': 'bi-people', 'color': 'clr-sky'}]) %}
-                {% endif %}
-            {% endif %}
-            {% if items_ventes|length > 0 %}
-                {% set sections = sections|merge([{'key': 'ventes', 'titre': 'Ventes & Caisse', 'icon': 'bi-cash-coin', 'items': items_ventes}]) %}
-            {% endif %}
-
-            {# ADMINISTRATION #}
-            {% set items_admin = [] %}
-            {% if can_admin %}
-                {% set items_admin = items_admin|merge([
-                    {'slug': 'depenses', 'label': 'Dépenses', 'icon': 'bi-wallet2', 'color': 'clr-rose'},
-                    {'slug': 'utilisateurs', 'label': 'Utilisateurs', 'icon': 'bi-people', 'color': 'clr-violet'},
-                    {'slug': 'magasins', 'label': 'Magasins', 'icon': 'bi-shop', 'color': 'clr-violet'},
-                    {'slug': 'parametres', 'label': 'Paramètres', 'icon': 'bi-gear', 'color': 'clr-violet'}
-                ]) %}
-            {% endif %}
-            {% if peut('audit_consulter') %}
-                {% set items_admin = items_admin|merge([{'slug': 'audit', 'label': "Journal d'activité", 'icon': 'bi-clock-history', 'color': 'clr-slate'}]) %}
-            {% endif %}
-            {% if peut('audit_consulter') %}
-                {% set items_admin = items_admin|merge([{'slug': 'conformite', 'label': 'Traçabilité des ventes', 'icon': 'bi-shield-check', 'color': 'clr-slate'}]) %}
-            {% endif %}
-            {% if items_admin|length > 0 %}
-                {% set sections = sections|merge([{'key': 'admin', 'titre': 'Administration', 'icon': 'bi-gear', 'items': items_admin}]) %}
-            {% endif %}
-
-            {# ── Rendu des sections pliables ── #}
-            {% for sec in sections %}
-                {% set active_dans = sec.items|filter(item => item.slug == page_courante)|length > 0 %}
-                <div class="nav-section {{ active_dans ? 'open' : '' }}" data-section="{{ sec.key }}">
-                    <button type="button" class="nav-section-head" aria-expanded="{{ active_dans ? 'true' : 'false' }}">
-                        <span class="nav-section-title"><i class="bi {{ sec.icon }}"></i> {{ sec.titre }}</span>
-                        <i class="bi bi-chevron-down nav-section-chevron"></i>
-                    </button>
-                    <div class="nav-section-body">
-                        {% for item in sec.items %}
-                            <a class="nav-link {{ page_courante == item.slug ? 'active' : '' }}" href="{{ item.slug }}.php">
-                                <span class="nav-icon {{ item.color }}"><i class="bi {{ item.icon }}"></i></span>
-                                <span>{{ item.label }}</span>
-                                {% if item.badge|default(0) > 0 %}
-                                    <span class="badge bg-danger ms-auto" style="font-size:.65rem;">{{ item.badge }}</span>
-                                {% endif %}
-                            </a>
-                        {% endfor %}
-                    </div>
-                </div>
-            {% endfor %}
-
-        </nav>
-
-        {# ── FOOTER : MON COMPTE ── #}
-        <div class="sidebar-footer">
-            <a class="side-user {{ page_courante == 'profil' ? 'active' : '' }}" href="profil.php" title="Mon profil">
-                <span class="avatar avatar-initial">{{ initiale }}</span>
-                <span class="meta">
-                    <span class="nm">{{ user.nom|default('') }}</span>
-                    <span class="rl">{{ role }}</span>
-                </span>
-            </a>
-        </div>
-    </aside>
-    <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+    <!-- ============ SIDEBAR (source unique : includes/sidebar.php via render_sidebar_html) ============ -->
+    {{ render_sidebar_html() }}
 
     <!-- ============ CONTENU ============ -->
     <div class="app-main">
@@ -240,6 +127,21 @@
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+{# CDN fallback JS : si le CDN est indisponible, charger les fichiers locaux #}
+<script nonce="{{ csp_nonce_val }}">
+(function(){
+    if (typeof bootstrap === 'undefined') {
+        var s = document.createElement('script');
+        s.src = '{{ base_url }}vendor/bootstrap.bundle.min.js';
+        document.head.appendChild(s);
+    }
+    if (typeof JsBarcode === 'undefined') {
+        var s2 = document.createElement('script');
+        s2.src = '{{ base_url }}vendor/JsBarcode.all.min.js';
+        document.head.appendChild(s2);
+    }
+})();
+</script>
     <script nonce="{{ csp_nonce_val }}">window.BASE_URL = {{ base_url|json_encode|raw }};</script>
 <script nonce="{{ csp_nonce_val }}" src="{{ base_url }}assets/js/app.js"></script>
 <script nonce="{{ csp_nonce_val }}">
@@ -263,12 +165,32 @@ if ('serviceWorker' in navigator) {
         toastEl.setAttribute('role','alert');
         toastEl.setAttribute('aria-live','assertive');
         toastEl.setAttribute('aria-atomic','true');
-        toastEl.innerHTML =
-            '<div class="d-flex">' +
-              '<div class="toast-body"><i class="bi bi-' + (icons[f.type]||'bell') + ' me-2"></i>' + f.message + '</div>' +
-              '<button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>' +
-            '</div>';
+
+        var flex = document.createElement('div');
+        flex.className = 'd-flex';
+
+        var body = document.createElement('div');
+        body.className = 'toast-body';
+
+        var icon = document.createElement('i');
+        icon.className = 'bi bi-' + (icons[f.type]||'bell') + ' me-2';
+        body.appendChild(icon);
+
+        // Utiliser textContent au lieu de innerHTML pour éviter le XSS
+        var text = document.createTextNode(f.message);
+        body.appendChild(text);
+
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn-close btn-close-white me-2 m-auto';
+        btn.setAttribute('data-bs-dismiss', 'toast');
+        btn.setAttribute('aria-label', 'Close');
+
+        flex.appendChild(body);
+        flex.appendChild(btn);
+        toastEl.appendChild(flex);
         container.appendChild(toastEl);
+
         var toast = new bootstrap.Toast(toastEl, {delay: 5000});
         toast.show();
         toastEl.addEventListener('hidden.bs.toast', function(){ toastEl.remove(); });

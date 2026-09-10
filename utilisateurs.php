@@ -58,19 +58,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'enregistrer') {
     }
 
     // Hiérarchie des rôles à la création
-    $role_hierarchy = ['VENDEUR' => 1, 'MAGASINIER' => 2, 'ADMIN' => 3, 'PROPRIETAIRE' => 4, 'CHEF_EQUIPE' => 4];
     $current = user_courant();
-    $current_role_level = $role_hierarchy[$current['role']] ?? 0;
-    $target_role_level = $role_hierarchy[$role_code] ?? 0;
+    $current_role_level = ROLE_HIERARCHIE[user_role()] ?? 0;
+    $target_role_level = ROLE_HIERARCHIE[$role_code] ?? 0;
 
     if ($data['id'] === 0 && $target_role_level >= $current_role_level) {
         flash_error('Vous ne pouvez pas créer un utilisateur avec un rang égal ou supérieur au vôtre.');
         redirect('utilisateurs.php');
     }
 
-    // Magasin d'appartenance : obligatoire pour tous les rôles sauf PROPRIETAIRE/CHEF_EQUIPE (global)
+    // Magasin d'appartenance : obligatoire pour tous les rôles sauf ceux à portée globale
     $magasin_utilisateur = (int)($data['magasin_id'] ?? 0);
-    $global_role_codes = ['PROPRIETAIRE', 'CHEF_EQUIPE'];
+    $global_role_codes = [ROLE_DIRECTEUR, ROLE_CHEF_EQUIPE, ROLE_CHEF_EQUIPE_USINE];
     if (!in_array($role_code, $global_role_codes, true)) {
         if ($magasin_utilisateur <= 0) {
             flash_error('Le magasin d\'appartenance est obligatoire pour ce rôle.');
@@ -141,8 +140,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'toggle') {
 
 // ---- Formulaire ----
 if ($action === 'nouveau' || $action === 'editer') {
-    $vendeur_role_id = $pdo->query("SELECT id FROM roles WHERE code = 'VENDEUR'")->fetchColumn();
-    $u = ['id' => '', 'nom' => '', 'login' => '', 'role_id' => $vendeur_role_id, 'role' => 'VENDEUR', 'magasin_id' => user_magasin_id(), 'actif' => 1];
+    $vendeur_role_id = $pdo->query("SELECT id FROM roles WHERE code = '" . ROLE_VENDEUR . "'")->fetchColumn();
+    $u = ['id' => '', 'nom' => '', 'login' => '', 'role_id' => $vendeur_role_id, 'role' => ROLE_VENDEUR, 'magasin_id' => user_magasin_id(), 'actif' => 1];
     if ($action === 'editer') {
         $get_id = (int)($_GET['id'] ?? 0);
         if (!verify_url_signature($get_id, input_string($_GET['token'] ?? ''), ['action' => 'editer'])) {

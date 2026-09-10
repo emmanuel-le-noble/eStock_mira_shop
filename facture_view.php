@@ -29,7 +29,7 @@ if ((int)($f['magasin_id'] ?? 0) !== user_magasin_id()) {
     redirect('factures.php');
 }
 
-if (user_role() === ROLE_VENDEUR && (int)($f['utilisateur_id'] ?? 0) !== (int)(user_courant()['id'] ?? 0)) {
+if (!peut('facturation_gerer') && (int)($f['utilisateur_id'] ?? 0) !== (int)(user_courant()['id'] ?? 0)) {
     flash_error('Vous n\'avez pas accès à cette facture.');
     redirect('factures.php');
 }

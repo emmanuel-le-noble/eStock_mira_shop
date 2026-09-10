@@ -1,4 +1,4 @@
-const CACHE_NAME = 'estock-v2';
+const CACHE_NAME = 'estock-v3';
 
 self.addEventListener('install', function (e) {
     self.skipWaiting();
@@ -17,10 +17,21 @@ self.addEventListener('activate', function (e) {
     );
 });
 
+function safeCachePut(request, response) {
+    var url;
+    try { url = new URL(request.url); } catch (_) { return; }
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
+    caches.open(CACHE_NAME).then(function (cache) {
+        cache.put(request, response).catch(function () {});
+    });
+}
+
 self.addEventListener('fetch', function (e) {
-    var url = new URL(e.request.url);
+    var url;
+    try { url = new URL(e.request.url); } catch (_) { return; }
 
     if (e.request.method !== 'GET') return;
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
 
     // API : network uniquement, pas de cache
     if (url.pathname.indexOf('/api/') !== -1) {
@@ -39,10 +50,7 @@ self.addEventListener('fetch', function (e) {
         e.respondWith(
             fetch(e.request).then(function (response) {
                 if (response && response.status === 200 && response.type === 'basic') {
-                    var clone = response.clone();
-                    caches.open(CACHE_NAME).then(function (cache) {
-                        cache.put(e.request, clone);
-                    });
+                    safeCachePut(e.request, response.clone());
                 }
                 return response;
             }).catch(function () {
@@ -60,10 +68,7 @@ self.addEventListener('fetch', function (e) {
             if (cached) return cached;
             return fetch(e.request).then(function (response) {
                 if (response && response.status === 200 && response.type === 'basic') {
-                    var clone = response.clone();
-                    caches.open(CACHE_NAME).then(function (cache) {
-                        cache.put(e.request, clone);
-                    });
+                    safeCachePut(e.request, response.clone());
                 }
                 return response;
             });

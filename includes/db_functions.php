@@ -26,31 +26,38 @@ function db_article_code_barre_exists(PDO $pdo, string $code_barre, int $exclude
 function db_article_insert(PDO $pdo, array $data): int {
     $type_article = $data['type_article'] ?? 'ARTICLE_COMMERCIAL';
     $origine = $data['origine_article'] ?? 'ACHAT_FOURNISSEUR';
-    $stmt = $pdo->prepare("
-        INSERT INTO articles (code_barre, nom, sku, type_article, origine_article, prix_achat, prix_vente, quantite_stock, seuil_alerte, emplacement, fournisseur_id, categorie_id, taux_tva)
-        VALUES (:code, :nom, :sku, :type, :origine, :pa, :pv, :qte, :seuil, :emp, :four, :cat, :tva)
-    ");
-    $stmt->execute([
-        ':code' => $data['code_barre'],
-        ':nom'  => $data['nom'],
-        ':sku'  => $data['sku'] ?? null,
-        ':type' => $type_article,
-        ':origine' => $origine,
-        ':pa'   => $data['prix_achat'],
-        ':pv'   => $data['prix_vente'],
-        ':qte'  => $data['quantite_stock'],
-        ':seuil'=> $data['seuil_alerte'],
-        ':emp'  => $data['emplacement'] ?? null,
-        ':four' => $data['fournisseur_id'] ?? null,
-        ':cat'  => !empty($data['categorie_id']) ? (int)$data['categorie_id'] : null,
-        ':tva'  => isset($data['taux_tva']) && $data['taux_tva'] !== null ? (float)$data['taux_tva'] : null,
-    ]);
-    $new_id = (int)$pdo->lastInsertId();
+    $pdo->beginTransaction();
+    try {
+        $stmt = $pdo->prepare("
+            INSERT INTO articles (code_barre, nom, sku, type_article, origine_article, prix_achat, prix_vente, quantite_stock, seuil_alerte, emplacement, fournisseur_id, categorie_id, taux_tva)
+            VALUES (:code, :nom, :sku, :type, :origine, :pa, :pv, :qte, :seuil, :emp, :four, :cat, :tva)
+        ");
+        $stmt->execute([
+            ':code' => $data['code_barre'],
+            ':nom'  => $data['nom'],
+            ':sku'  => $data['sku'] ?? null,
+            ':type' => $type_article,
+            ':origine' => $origine,
+            ':pa'   => $data['prix_achat'],
+            ':pv'   => $data['prix_vente'],
+            ':qte'  => $data['quantite_stock'],
+            ':seuil'=> $data['seuil_alerte'],
+            ':emp'  => $data['emplacement'] ?? null,
+            ':four' => $data['fournisseur_id'] ?? null,
+            ':cat'  => !empty($data['categorie_id']) ? (int)$data['categorie_id'] : null,
+            ':tva'  => isset($data['taux_tva']) && $data['taux_tva'] !== null ? (float)$data['taux_tva'] : null,
+        ]);
+        $new_id = (int)$pdo->lastInsertId();
 
-    // Initialiser le stock dans TOUS les magasins actifs
-    db_stock_magasin_init_for_article($pdo, $new_id, (int)$data['quantite_stock'], (int)$data['seuil_alerte']);
+        // Initialiser le stock dans TOUS les magasins actifs
+        db_stock_magasin_init_for_article($pdo, $new_id, (int)$data['quantite_stock'], (int)$data['seuil_alerte']);
 
-    return $new_id;
+        $pdo->commit();
+        return $new_id;
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
 }
 
 /**
@@ -581,9 +588,16 @@ function db_fournisseur_update(PDO $pdo, int $id, string $nom, ?string $contact,
 }
 
 /**
- * Supprimer un fournisseur.
+ * Supprimer un fournisseur. Vérifie les références FK avant suppression.
  */
 function db_fournisseur_delete(PDO $pdo, int $id): void {
+    // Vérifier les articles liés
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM articles WHERE fournisseur_id = ?");
+    $stmt->execute([$id]);
+    $count = (int)$stmt->fetchColumn();
+    if ($count > 0) {
+        throw new \RuntimeException("Ce fournisseur est lié à $count article(s). Supprimez ou réaffectez-les d'abord.");
+    }
     $pdo->prepare("DELETE FROM fournisseurs WHERE id = ?")->execute([$id]);
 }
 
@@ -770,7 +784,7 @@ function db_user_link_google(PDO $pdo, int $user_id, string $google_id, string $
  */
 function db_user_create_from_google(PDO $pdo, string $nom, string $google_id, string $google_email, ?string $google_avatar): int {
     $login = 'google_' . $google_id;
-    $vendeur_role_id = $pdo->query("SELECT id FROM roles WHERE code = 'VENDEUR'")->fetchColumn();
+    $default_role_id = $pdo->query("SELECT id FROM roles WHERE code = 'VENDEUR' AND actif = 1")->fetchColumn() ?: 1;
     $stmt = $pdo->prepare('
         INSERT INTO utilisateurs (nom, login, mot_de_passe, google_id, google_email, google_avatar, role_id, actif)
         VALUES (:nom, :login, :mdp, :gid, :gemail, :gavatar, :role_id, 1)
@@ -782,7 +796,7 @@ function db_user_create_from_google(PDO $pdo, string $nom, string $google_id, st
         ':gid' => $google_id,
         ':gemail' => $google_email,
         ':gavatar' => $google_avatar,
-        ':role_id' => $vendeur_role_id,
+        ':role_id' => $default_role_id,
     ]);
     return (int)$pdo->lastInsertId();
 }
@@ -1104,7 +1118,7 @@ function db_mouvements_search_sql(array $filters = []): array {
         $params[] = "%$f_article%";
         $params[] = "%$f_article%";
     }
-    if (in_array($f_type, ['Entree', 'Sortie', 'Vente', 'Transfert', 'Ajustement', 'Retour_stock'], true)) {
+    if (in_array($f_type, ['ENTREE', 'SORTIE', 'VENTE', 'TRANSFERT', 'AJUSTEMENT', 'RETOUR_STOCK'], true)) {
         $where[] = "m.type = ?";
         $params[] = $f_type;
     }
@@ -1343,7 +1357,8 @@ function db_stock_magasin_get_for_update(PDO $pdo, int $magasin_id, int $article
  * Mettre à jour le stock d'un article dans un magasin (delta positif ou négatif).
  */
 function db_stock_magasin_update(PDO $pdo, int $magasin_id, int $article_id, int $delta): void {
-    $stmt = $pdo->prepare("UPDATE stock_magasins SET quantite = quantite + :delta WHERE magasin_id = :mag AND article_id = :art");
+    // Protéger contre le stock négatif sur les deux tables
+    $stmt = $pdo->prepare("UPDATE stock_magasins SET quantite = GREATEST(0, quantite + :delta) WHERE magasin_id = :mag AND article_id = :art");
     $stmt->execute([':delta' => $delta, ':mag' => $magasin_id, ':art' => $article_id]);
 
     // Conserver le stock global cohérent avec les mouvements par magasin
@@ -1482,8 +1497,8 @@ function db_transferer_stock(
 
         // 5. Traçabilité : un mouvement pour chaque magasin (sortie source, entrée destination)
         $uid = $_SESSION['user']['id'] ?? null;
-        db_mouvement_insert($pdo, $article_id, $uid, 'Transfert', $quantite, $motif, $source_id);
-        db_mouvement_insert($pdo, $article_id, $uid, 'Entree', $quantite, $motif, $destination_id);
+        db_mouvement_insert($pdo, $article_id, $uid, 'TRANSFERT', $quantite, $motif, $source_id);
+        db_mouvement_insert($pdo, $article_id, $uid, 'ENTREE', $quantite, $motif, $destination_id);
 
         $pdo->commit();
     } catch (\Throwable $e) {
@@ -1983,6 +1998,8 @@ function db_role_update(PDO $pdo, string $code, string $nom, ?string $descriptio
  * Supprimer un rôle (si pas de protection).
  */
 function db_role_delete(PDO $pdo, string $code): void {
+    // Nettoyer les associations utilisateur-rôle avant suppression
+    $pdo->prepare("DELETE FROM user_roles WHERE role_id = (SELECT id FROM (SELECT id FROM roles WHERE code = ?) AS tmp)")->execute([$code]);
     $pdo->prepare("DELETE FROM role_permissions WHERE role_nom = ?")->execute([$code]);
     $pdo->prepare("DELETE FROM roles WHERE code = ?")->execute([$code]);
 }
@@ -2009,7 +2026,7 @@ function db_role_admin_count(PDO $pdo): int {
     try {
         $stmt = $pdo->query(
             "SELECT COUNT(DISTINCT ur.user_id) FROM user_roles ur
-             JOIN roles r ON r.id = ur.role_id AND r.code IN ('ADMIN', 'PROPRIETAIRE')"
+             JOIN roles r ON r.id = ur.role_id AND r.code IN ('" . ROLE_ADMIN . "', '" . ROLE_DIRECTEUR . "')"
         );
         return (int)$stmt->fetchColumn();
     } catch (Throwable $e) {
@@ -2499,7 +2516,7 @@ function db_reception_ligne_insert(PDO $pdo, array $data): int {
 function db_reception_get_by_id(PDO $pdo, int $id): ?array {
     $st = $pdo->prepare(
         "SELECT r.*, f.nom AS fournisseur_nom, m.nom AS magasin_nom, u.nom AS utilisateur_nom,
-                c.numero_commande
+                 CONCAT('CMD-', c.id) AS numero_commande
          FROM receptions r
          JOIN fournisseurs f ON f.id = r.fournisseur_id
          JOIN magasins m ON m.id = r.magasin_id
@@ -2562,7 +2579,10 @@ function db_reception_valider(PDO $pdo, int $reception_id, int $utilisateur_id):
         return false;
     }
 
-    $pdo->beginTransaction();
+    $wasInTransaction = $pdo->inTransaction();
+    if (!$wasInTransaction) {
+        $pdo->beginTransaction();
+    }
     try {
         // Mettre à jour le statut de la réception
         $pdo->prepare("UPDATE receptions SET statut = 'Validee', utilisateur_id = ? WHERE id = ?")
@@ -2617,7 +2637,7 @@ function db_reception_valider(PDO $pdo, int $reception_id, int $utilisateur_id):
 
                 // Mouvement de stock
                 $motif = sprintf('Réception %s — %s unités acceptées', $reception['reference'], $qty_acceptee);
-                db_mouvement_insert($pdo, $ligne['article_id'], $utilisateur_id, 'Entree', $qty_acceptee, $motif, $reception['magasin_id']);
+                db_mouvement_insert($pdo, $ligne['article_id'], $utilisateur_id, 'ENTREE', $qty_acceptee, $motif, $reception['magasin_id']);
 
                 // Lot
                 if (!empty($ligne['numero_lot'])) {
@@ -2687,10 +2707,14 @@ function db_reception_valider(PDO $pdo, int $reception_id, int $utilisateur_id):
         // Audit
         suivre_activite('RECEPTION_VALIDEE', 'Réception #' . $reception_id . ' validée — commande #' . $commande_id);
 
-        $pdo->commit();
+        if (!$wasInTransaction) {
+            $pdo->commit();
+        }
         return true;
     } catch (Throwable $e) {
-        $pdo->rollBack();
+        if (!$wasInTransaction && $pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
         error_log('Erreur validation réception #' . $reception_id . ': ' . $e->getMessage());
         throw $e;
     }
@@ -3659,27 +3683,34 @@ function db_inventaire_appliquer_ecarts(PDO $pdo, int $inventaire_id, int $user_
     $inv = db_inventaire_get_by_id($pdo, $inventaire_id);
     $magasin_id = (int)($inv['magasin_id'] ?? 0);
 
-    foreach ($lignes as $l) {
-        $ecart = (int)$l['ecart'];
-        if ($ecart === 0) continue;
+    $pdo->beginTransaction();
+    try {
+        foreach ($lignes as $l) {
+            $ecart = (int)$l['ecart'];
+            if ($ecart === 0) continue;
 
-        $article_id = (int)$l['article_id'];
+            $article_id = (int)$l['article_id'];
 
-        // Sans magasin défini : mise à jour directe du stock global uniquement.
-        // Avec magasin, process_stock_movement() synchronise déjà le stock global (évite tout double décompte).
-        if ($magasin_id <= 0) {
-            $pdo->prepare("UPDATE articles SET quantite_stock = GREATEST(0, quantite_stock + :delta) WHERE id = :id")
-                ->execute([':delta' => $ecart, ':id' => $article_id]);
-        }
+            // Sans magasin défini : mise à jour directe du stock global uniquement.
+            // Avec magasin, process_stock_movement() synchronise déjà le stock global (évite tout double décompte).
+            if ($magasin_id <= 0) {
+                $pdo->prepare("UPDATE articles SET quantite_stock = GREATEST(0, quantite_stock + :delta) WHERE id = :id")
+                    ->execute([':delta' => $ecart, ':id' => $article_id]);
+            }
 
-        // Maj du stock magasin + mouvement de traçabilité (Entree/Sortie)
-        if ($magasin_id > 0) {
-            $type  = $ecart > 0 ? 'Entree' : 'Sortie';
-            $motif = 'Ajustement inventaire #' . $inventaire_id;
-            if (function_exists('process_stock_movement')) {
-                process_stock_movement($pdo, $article_id, $type, abs($ecart), $motif, $user_id, $magasin_id);
+            // Maj du stock magasin + mouvement de traçabilité (Entree/Sortie)
+            if ($magasin_id > 0) {
+                $type  = $ecart > 0 ? 'ENTREE' : 'SORTIE';
+                $motif = 'Ajustement inventaire #' . $inventaire_id;
+                if (function_exists('process_stock_movement')) {
+                    process_stock_movement($pdo, $article_id, $type, abs($ecart), $motif, $user_id, $magasin_id);
+                }
             }
         }
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
     }
 }
 
@@ -3782,44 +3813,51 @@ function db_retour_creer(PDO $pdo, int $facture_id, array $lignes_retour, string
         $montantTotal += round((float)$l['prix_unitaire'] * (int)$l['quantite'], 2);
     }
 
-    $retourId = db_retour_insert($pdo, [
-        'numero_retour'  => $num,
-        'facture_id'     => $facture_id,
-        'magasin_id'     => $magasin_id,
-        'utilisateur_id' => $user_id,
-        'montant_total'  => $montantTotal,
-        'motif'          => $motif,
-    ]);
-
-    $stmtLigne = $pdo->prepare("
-        INSERT INTO lignes_retour (retour_id, ligne_facture_id, article_id, quantite, prix_unitaire)
-        VALUES (?, ?, ?, ?, ?)
-    ");
-
-    foreach ($lignes_retour as $l) {
-        $stmtLigne->execute([
-            $retourId,
-            (int)$l['ligne_facture_id'],
-            (int)$l['article_id'],
-            (int)$l['quantite'],
-            (float)$l['prix_unitaire'],
+    $pdo->beginTransaction();
+    try {
+        $retourId = db_retour_insert($pdo, [
+            'numero_retour'  => $num,
+            'facture_id'     => $facture_id,
+            'magasin_id'     => $magasin_id,
+            'utilisateur_id' => $user_id,
+            'montant_total'  => $montantTotal,
+            'motif'          => $motif,
         ]);
 
-        // Remettre en stock via process_stock_movement (Entrée / Retour SAV)
-        if (function_exists('process_stock_movement')) {
-            process_stock_movement(
-                $pdo,
-                (int)$l['article_id'],
-                'Entree',
-                (int)$l['quantite'],
-                'Retour SAV #' . $num . ' (Facture #' . $facture_id . ')',
-                $user_id,
-                $magasin_id
-            );
-        }
-    }
+        $stmtLigne = $pdo->prepare("
+            INSERT INTO lignes_retour (retour_id, ligne_facture_id, article_id, quantite, prix_unitaire)
+            VALUES (?, ?, ?, ?, ?)
+        ");
 
-    return $retourId;
+        foreach ($lignes_retour as $l) {
+            $stmtLigne->execute([
+                $retourId,
+                (int)$l['ligne_facture_id'],
+                (int)$l['article_id'],
+                (int)$l['quantite'],
+                (float)$l['prix_unitaire'],
+            ]);
+
+            // Remettre en stock via process_stock_movement (Entrée / Retour SAV)
+            if (function_exists('process_stock_movement')) {
+                process_stock_movement(
+                    $pdo,
+                    (int)$l['article_id'],
+                    'ENTREE',
+                    (int)$l['quantite'],
+                    'Retour SAV #' . $num . ' (Facture #' . $facture_id . ')',
+                    $user_id,
+                    $magasin_id
+                );
+            }
+        }
+
+        $pdo->commit();
+        return $retourId;
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
 }
 
 // ============================================================
@@ -4620,8 +4658,8 @@ function db_journal_achats(PDO $pdo, string $debut, string $fin, int $magasin_id
 function db_journal_stocks(PDO $pdo, string $debut, string $fin, int $magasin_id = 0): array {
     $sql = "SELECT m.article_id, a.nom AS article_nom, a.code_barre,
                    COALESCE(NULLIF(a.cump, 0), a.prix_achat) AS cout_unitaire,
-                   SUM(CASE WHEN m.type IN ('Entree','Retour_stock') THEN m.quantite ELSE 0 END) AS entrees,
-                   SUM(CASE WHEN m.type IN ('Sortie','Vente','Transfert') THEN m.quantite ELSE 0 END) AS sorties
+                   SUM(CASE WHEN m.type IN ('ENTREE','RETOUR_STOCK') THEN m.quantite ELSE 0 END) AS entrees,
+                   SUM(CASE WHEN m.type IN ('SORTIE','VENTE','TRANSFERT') THEN m.quantite ELSE 0 END) AS sorties
             FROM mouvements_stock m
             JOIN articles a ON a.id = m.article_id
             WHERE DATE(m.date_mouvement) BETWEEN ? AND ?";

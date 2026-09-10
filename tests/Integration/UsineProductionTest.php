@@ -9,9 +9,13 @@
  *   * Création, démarrage, clôture de production
  *   * Consommation matières (stock_mp) + produits finis (stock_produits_finis_usine)
  *   * Calcul des coûts de production
- *   * Lots de production
  *   * Transfert usine → magasin
  *   * Personnel et présences
+ *
+ * Note : Les tables `production_lots`, `production_employes`, `production_produits`,
+ *        `presences_employes_audit`, `mouvements_produits_finis` et
+ *        `mouvements_matieres_premieres` ont été supprimées lors du nettoyage
+ *        ciblé du schéma (migration 2026-09-10 — Option B).
  */
 
 final class UsineProductionTest extends PHPUnit\Framework\TestCase
@@ -27,19 +31,13 @@ final class UsineProductionTest extends PHPUnit\Framework\TestCase
     protected function setUp(): void
     {
         self::$pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
-        self::$pdo->exec('DELETE FROM production_lots');
         self::$pdo->exec('DELETE FROM production_pertes');
-        self::$pdo->exec('DELETE FROM production_employes');
-        self::$pdo->exec('DELETE FROM production_produits');
         self::$pdo->exec('DELETE FROM production_matieres');
         self::$pdo->exec('DELETE FROM productions');
-        self::$pdo->exec('DELETE FROM presences_employes_audit');
         self::$pdo->exec('DELETE FROM presences_employes');
         self::$pdo->exec('DELETE FROM employes');
         self::$pdo->exec('DELETE FROM recettes_lignes');
         self::$pdo->exec('DELETE FROM recettes');
-        self::$pdo->exec('DELETE FROM mouvements_matieres_premieres');
-        self::$pdo->exec('DELETE FROM mouvements_produits_finis');
         self::$pdo->exec('DELETE FROM stock_matieres_premieres');
         self::$pdo->exec('DELETE FROM stock_produits_finis_usine');
         self::$pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
@@ -286,9 +284,10 @@ final class UsineProductionTest extends PHPUnit\Framework\TestCase
         $this->assertNotNull($stock_pf);
         $this->assertEquals(480, (int)$stock_pf['quantite']);
 
-        // Lot créé
-        $this->assertCount(1, $prod['lots']);
-        $this->assertEquals($prod['reference'], $prod['lots'][0]['numero_lot']);
+        // Les lots de production (production_lots) ont été supprimés — table orpheline nettoyée.
+        // La gestion des lots commerciaux est assurée par article_lots.
+        $this->assertIsArray($prod['lots']);
+        $this->assertEmpty($prod['lots']);
 
         // Pertes
         $this->assertCount(1, $prod['pertes']);
@@ -420,7 +419,7 @@ final class UsineProductionTest extends PHPUnit\Framework\TestCase
         $this->assertTrue($found, 'Présence trouvée dans la liste');
     }
 
-    public function testPresenceModificationAudite(): void
+    public function testPresenceModification(): void
     {
         $emp_id = db_employe_insert(self::$pdo, [
             'matricule' => 'EMP-011', 'nom' => 'Bony', 'prenom' => 'Koffi',
@@ -431,34 +430,11 @@ final class UsineProductionTest extends PHPUnit\Framework\TestCase
         db_presence_upsert(self::$pdo, $emp_id, $date, '07:30', '17:00');
         db_presence_upsert(self::$pdo, $emp_id, $date, '07:45', '17:15', 'Retard');
 
-        $audit = self::$pdo->prepare("SELECT * FROM presences_employes_audit WHERE employe_id = ?");
-        $audit->execute([$emp_id]);
-        $audits = $audit->fetchAll();
-        $this->assertGreaterThanOrEqual(1, count($audits));
-        $this->assertNotNull($audits[0]['ancienne_valeur']);
-        $this->assertNotNull($audits[0]['nouvelle_valeur']);
-    }
-
-    public function testAffectationEmployesProduction(): void
-    {
-        $mp_id = $this->creerMatierePremiere('Matière Emp', 'MAT-060', 400);
-        $pf_id = $this->creerProduitFini('Produit Emp', 'PF-060');
-        $recette_id = db_recette_insert(self::$pdo, [
-            'nom' => 'Recette Emp', 'article_id' => $pf_id, 'quantite_produite' => 10,
-            'lignes' => [['matiere_id' => $mp_id, 'quantite_necessaire' => 5, 'unite' => 'KG']],
-        ]);
-
-        $emp1 = db_employe_insert(self::$pdo, ['matricule' => 'EMP-020', 'nom' => 'Test1', 'prenom' => 'A', 'fonction' => 'Op']);
-        $emp2 = db_employe_insert(self::$pdo, ['matricule' => 'EMP-021', 'nom' => 'Test2', 'prenom' => 'B', 'fonction' => 'Op']);
-
-        $prod_id = db_production_insert(self::$pdo, [
-            'article_id' => $pf_id, 'recette_id' => $recette_id,
-            'quantite_prevue' => 50,
-        ]);
-
-        db_production_set_employes(self::$pdo, $prod_id, [$emp1, $emp2]);
-        $prod = db_production_get(self::$pdo, $prod_id);
-        $this->assertCount(2, $prod['employes']);
+        $p = self::$pdo->prepare("SELECT * FROM presences_employes WHERE employe_id = ? AND date_presence = ?");
+        $p->execute([$emp_id, $date]);
+        $row = $p->fetch();
+        $this->assertEquals('07:45:00', $row['heure_arrivee']);
+        $this->assertEquals('Retard', $row['commentaire']);
     }
 
     // ============================================================

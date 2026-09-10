@@ -82,10 +82,10 @@ include __DIR__ . '/includes/header.php';
                         </thead>
                         <tbody>
                             <?php foreach ($dashboard['matieres_stock'] as $m): ?>
-                                <tr class="<?= $m['quantite'] <= $m['seuil_alerte'] ? 'table-warning' : '' ?>">
+                                <tr class="<?= $m['quantite'] <= $m['stock_minimum'] ? 'table-warning' : '' ?>">
                                     <td class="fw-semibold"><?= h($m['nom']) ?></td>
                                     <td><?= number_format((float)$m['quantite']) ?> <?= h($m['unite_mesure']) ?></td>
-                                    <td><?= (int)$m['seuil_alerte'] ?></td>
+                                    <td><?= (int)$m['stock_minimum'] ?></td>
                                 </tr>
                             <?php endforeach; ?>
                         </tbody>

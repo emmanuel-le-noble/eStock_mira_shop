@@ -219,11 +219,13 @@ include __DIR__ . '/includes/header.php';
     </div>
 </div>
 
-<script nonce="<?= csp_nonce_val() ?>">
+<script nonce="<?= csp_nonce() ?>">
 document.addEventListener('DOMContentLoaded', function() {
     const container = document.getElementById('lignesContainer');
     const btnAjouter = document.getElementById('btnAjouterLigne');
     const matieres = <?= json_encode(array_map(fn($m) => ['id' => $m['id'], 'nom' => $m['nom'], 'unite' => $m['unite_mesure']], $matieres)) ?>;
+
+    if (!container) return;
 
     if (btnAjouter) {
         btnAjouter.addEventListener('click', function() {

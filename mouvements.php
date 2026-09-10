@@ -20,7 +20,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'ajout
 
     $data = extract_post_data([
         'article_id' => ['type' => 'int'],
-        'type'       => ['type' => 'string', 'whitelist' => ['Entree', 'Sortie']],
+        'type'       => ['type' => 'string', 'whitelist' => ['ENTREE', 'SORTIE']],
         'quantite'   => ['type' => 'int', 'min' => 1],
         'motif'      => ['type' => 'string', 'trim' => true],
     ], 'mouvements.php');
@@ -51,7 +51,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'ajout
         $pdo->commit();
         suivre_activite('MOUVEMENT_STOCK', $data['type'] . ' de ' . $data['quantite'] . ' unité(s) — ' . $art['nom']);
         flash_success(sprintf('%s de %d unité(s) enregistrée pour « %s ».',
-            $data['type'] === 'Entree' ? 'Entrée' : 'Sortie', $data['quantite'], $art['nom']));
+            $data['type'] === 'ENTREE' ? 'Entrée' : 'Sortie', $data['quantite'], $art['nom']));
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) {
             $pdo->rollBack();
@@ -104,7 +104,7 @@ include __DIR__ . '/includes/header.php';
                 <label class="form-label small">Type</label>
                 <select name="type" class="form-select">
                     <option value="">Tous</option>
-                    <?php foreach (['Entree'=>'Entrée','Sortie'=>'Sortie','Vente'=>'Vente','Transfert'=>'Transfert','Ajustement'=>'Ajustement','Retour_stock'=>'Retour stock'] as $k=>$lbl): ?>
+                    <?php foreach (['ENTREE'=>'Entrée','SORTIE'=>'Sortie','VENTE'=>'Vente','TRANSFERT'=>'Transfert','AJUSTEMENT'=>'Ajustement','RETOUR_STOCK'=>'Retour stock'] as $k=>$lbl): ?>
                         <option value="<?= $k ?>" <?= $f_type===$k?'selected':'' ?>><?= $lbl ?></option>
                     <?php endforeach; ?>
                 </select>
@@ -232,7 +232,7 @@ pagination_links($result['page'], $result['total_pages'], $base_url);
             var lotFields = document.getElementById('lotFields');
             if (typeSelect && lotFields) {
                 typeSelect.addEventListener('change', function() {
-                    var showLot = this.value === 'Entree';
+                    var showLot = this.value === 'ENTREE';
                     lotFields.style.display = showLot ? 'block' : 'none';
                 });
             }

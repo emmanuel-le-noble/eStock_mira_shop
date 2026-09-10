@@ -354,7 +354,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'receptionner') {
 
     } catch (Throwable $e) {
         error_log('Erreur réception commande: ' . $e->getMessage());
-        flash_error('Erreur lors de la réception. Veuillez vérifier les quantités saisies.');
+        flash_error('Erreur lors de la réception : ' . $e->getMessage());
     }
 
     redirect(generate_signed_url('commandes_fournisseur.php', $cmd_id, ['action' => 'voir']));

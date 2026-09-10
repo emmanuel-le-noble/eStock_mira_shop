@@ -60,6 +60,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'annuler') {
     redirect('productions.php');
 }
 
+// POST handler: cloturer
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'cloturer') {
+    exiger_permission('production_cloturer');
+    csrf_guard('productions.php');
+    $id = (int)($_POST['id'] ?? 0);
+    $quantite_produite = (int)($_POST['quantite_produite'] ?? 0);
+    $quantite_perdue = (int)($_POST['quantite_perdue'] ?? 0);
+
+    $matieres_reelles = [];
+    $mp_ids = $_POST['mp_id'] ?? [];
+    $mp_qtes = $_POST['mp_quantite_reelle'] ?? [];
+    foreach ($mp_ids as $i => $mp_id) {
+        $mp_id = (int)$mp_id;
+        $qte = (float)($mp_qtes[$i] ?? 0);
+        if ($mp_id > 0) {
+            $matieres_reelles[] = ['matiere_id' => $mp_id, 'quantite_reelle' => $qte];
+        }
+    }
+
+    try {
+        db_production_cloturer($pdo, $id, $matieres_reelles, $quantite_produite, $quantite_perdue);
+        suivre_activite('PRODUCTION_TERMINEE', "Production #$id clôturée — $quantite_produite produits, $quantite_perdue pertes");
+        flash_success('Production clôturée avec succès.');
+    } catch (Throwable $e) {
+        flash_error($e->getMessage());
+    }
+    redirect('productions.php?action=detail&id=' . $id);
+}
+
 // Nouveau
 if ($action === 'nouveau') {
     $produits_finis = $pdo->query("SELECT id, nom FROM articles WHERE type_article = 'PRODUIT_FINI' AND actif = 1 ORDER BY nom")->fetchAll();
@@ -143,6 +172,11 @@ if ($action === 'detail' && !empty($_GET['id'])) {
                     <input type="hidden" name="id" value="<?= $prod['id'] ?>">
                     <button type="submit" class="btn btn-success"><i class="bi bi-play-fill"></i> Démarrer</button>
                 </form>
+            <?php endif; ?>
+            <?php if ($prod['statut'] === 'EN_COURS'): ?>
+                <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#modalCloturer">
+                    <i class="bi bi-check-circle"></i> Clôturer
+                </button>
             <?php endif; ?>
             <?php if ($prod['statut'] === 'BROUILLON' || $prod['statut'] === 'PLANIFIEE' || $prod['statut'] === 'EN_COURS'): ?>
                 <form method="post" action="productions.php?action=annuler" style="display:inline" data-confirm="Annuler cette production ?">
@@ -282,6 +316,56 @@ if ($action === 'detail' && !empty($_GET['id'])) {
                     <?php endforeach; ?>
                 </tbody>
             </table>
+        </div>
+    </div>
+    <?php endif; ?>
+
+    <!-- Modal Clôturer Production -->
+    <?php if ($prod['statut'] === 'EN_COURS'): ?>
+    <div class="modal fade" id="modalCloturer" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <form method="post" action="productions.php?action=cloturer">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="id" value="<?= $prod['id'] ?>">
+                    <div class="modal-header">
+                        <h5 class="modal-title fw-bold"><i class="bi bi-check-circle text-primary me-2"></i>Clôturer la production <?= h($prod['reference']) ?></h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="row g-3 mb-4">
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold">Quantité produite *</label>
+                                <input type="number" name="quantite_produite" class="form-control" min="0" required value="<?= (int)$prod['quantite_prevue'] ?>">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold">Quantité perdue</label>
+                                <input type="number" name="quantite_perdue" class="form-control" min="0" value="0">
+                            </div>
+                        </div>
+                        <h6 class="fw-bold mb-3">Consommation réelle des matières premières</h6>
+                        <table class="table table-sm align-middle">
+                            <thead><tr><th>Matière</th><th>Prévue</th><th class="w-25">Réelle *</th></tr></thead>
+                            <tbody>
+                                <?php foreach ($prod['matieres'] as $m): ?>
+                                <tr>
+                                    <td class="fw-semibold"><?= h($m['matiere_nom']) ?></td>
+                                    <td><?= number_format((float)$m['quantite_prevue'], 2) ?> <?= h($m['unite']) ?></td>
+                                    <td>
+                                        <input type="hidden" name="mp_id[]" value="<?= $m['matiere_id'] ?>">
+                                        <input type="number" name="mp_quantite_reelle[]" class="form-control form-control-sm" min="0" step="0.01" required value="<?= number_format((float)$m['quantite_prevue'], 2, '.', '') ?>">
+                                    </td>
+                                </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+                        <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg"></i> Clôturer</button>
+                    </div>
+                </form>
+            </div>
         </div>
     </div>
     <?php endif; ?>

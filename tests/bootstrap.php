@@ -78,24 +78,23 @@ function test_db_schema(): void {
         $pdo->exec($stmt);
     }
 
-    // Migrations clés (séquences, intégrité, données clients, fidélité, valorisation)
-    foreach ([
-        'compteurs_sequences.sql',
-        'categories.sql',
-        'tva_multiple.sql',
-        'integrite_ventes.sql',
-        'donnees_clients.sql',
-        'conformite_togo.sql',
-        'fidelite.sql',
-        'points_reversals.sql',
-        'valorisation_stock.sql',
-        'unite_mesure.sql',
-        'emails_queue.sql',
-        'emails_consentements.sql',
+    // Migrations actives
+    $migrationFiles = [
+        'migration_fix_2026_08_22.sql',
+        'migration_google_oauth_2026_08_27.sql',
+        'migration_rename_directeur_2026_08_28.sql',
         'migration_prix_dynamiques_receptions_2026_09_04.sql',
         'migration_usine_production_2026_09_04.sql',
-    ] as $file) {
-        $m = file_get_contents($root . '/database/' . $file);
+        'migration_rbac_usine_independante_2026_09_04.sql',
+        'migration_tracabilite_usine_2026_09_08.sql',
+        'migration_nettoyage_tables_inutiles_2026_09_10.sql',
+        'migration_consolidation_2026_09_10.sql',
+        'migration_architecture_2026_09_10.sql',
+    ];
+    foreach ($migrationFiles as $file) {
+        $path = $root . '/database/' . $file;
+        if (!file_exists($path)) continue;
+        $m = file_get_contents($path);
         if ($m === false) continue;
         foreach (split_sql_statements($m) as $stmt) {
             $stmt = trim($stmt);

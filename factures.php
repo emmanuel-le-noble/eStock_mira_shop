@@ -22,7 +22,7 @@ $filters = [
     'debut'  => $debut,
     'fin'    => $fin,
 ];
-if (user_role() === ROLE_VENDEUR) {
+if (!peut('facturation_gerer') && !peut('caisse_gerer')) {
     $filters['utilisateur_id'] = user_courant()['id'] ?? 0;
 }
 $search_sql = db_factures_search_sql($filters, user_magasin_id());

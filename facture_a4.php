@@ -20,8 +20,7 @@ if (!est_connecte()) {
         flash_error('Accès non autorisé.'); redirect('factures.php');
     }
 } else {
-    $role_valide = in_array(user_role(), [ROLE_DIRECTEUR, ROLE_ADMIN, ROLE_VENDEUR], true);
-    if (!peut('facturation_consulter') && !peut('caisse_gerer') && !$role_valide) {
+    if (!peut('facturation_consulter') && !peut('caisse_gerer')) {
         flash_error('Droits insuffisants.'); redirect('factures.php');
     }
 }
@@ -29,7 +28,7 @@ if (!est_connecte()) {
 $f = db_facture_get_by_id($pdo, $factureId);
 if (!$f) { flash_error('Facture introuvable.'); redirect('factures.php'); }
 
-if (est_connecte() && user_role() === ROLE_VENDEUR
+if (est_connecte() && !peut('facturation_gerer')
     && (int)($f['utilisateur_id'] ?? 0) !== (int)(user_courant()['id'] ?? 0)) {
     flash_error('Accès non autorisé.'); redirect('factures.php');
 }

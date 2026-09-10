@@ -113,8 +113,8 @@ if (!empty($utilisateur['magasin_id'])) {
 
 suivre_activite($actionLog, $msgLog);
 
-// Rediriger selon le rôle
-if (($utilisateur['role'] ?? '') === ROLE_DIRECTEUR) {
+// Rediriger : si pas de magasin assigné, demander la sélection
+if (empty($utilisateur['magasin_id'] ?? '')) {
     redirect('choisir_magasin.php');
 }
 redirect('../tableau_bord.php');

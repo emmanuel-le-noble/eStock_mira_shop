@@ -45,7 +45,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     unset($_SESSION['magasin_actif']);
                 }
                 suivre_activite('CONNEXION', 'Connexion réussie: ' . $login);
-                if (user_role() === ROLE_DIRECTEUR) {
+                if (empty($u['magasin_id'])) {
                     redirect('choisir_magasin.php');
                 }
                 redirect('../tableau_bord.php');

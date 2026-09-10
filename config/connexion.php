@@ -100,6 +100,31 @@ define('ROLE_DIRECTEUR', 'PROPRIETAIRE');
 define('ROLE_ADMIN', 'ADMIN');
 define('ROLE_MAGASINIER', 'MAGASINIER');
 define('ROLE_VENDEUR', 'VENDEUR');
+define('ROLE_CHEF_EQUIPE', 'CHEF_EQUIPE');
+define('ROLE_CHEF_EQUIPE_USINE', 'CHEF_EQUIPE_USINE');
+
+// Rôles protégés (non supprimables/modifiables par les admins)
+define('ROLES_PROTEGES', [ROLE_DIRECTEUR, ROLE_ADMIN, ROLE_MAGASINIER, ROLE_VENDEUR]);
+
+// Hiérarchie des rôles (pour contrôle d'accès hiérarchique)
+define('ROLE_HIERARCHIE', [
+    ROLE_VENDEUR => 1,
+    ROLE_MAGASINIER => 2,
+    ROLE_CHEF_EQUIPE => 3,
+    ROLE_CHEF_EQUIPE_USINE => 3,
+    ROLE_ADMIN => 4,
+    ROLE_DIRECTEUR => 5,
+]);
+
+// Couleurs d'affichage par rôle
+define('ROLE_COULEURS', [
+    ROLE_DIRECTEUR => 'dark',
+    ROLE_ADMIN => 'primary',
+    ROLE_MAGASINIER => 'warning',
+    ROLE_VENDEUR => 'info',
+    ROLE_CHEF_EQUIPE => 'success',
+    ROLE_CHEF_EQUIPE_USINE => 'success',
+]);
 
 $secretKey = getenv('SECRET_URL_KEY');
 if ($secretKey === false || strlen($secretKey) < 32) {
@@ -155,14 +180,20 @@ try {
 //  3. SESSION
 // ============================================================
 if (php_sapi_name() !== 'cli' && session_status() === PHP_SESSION_NONE) {
+    // Sécurité session : strict mode + cookies uniquement
+    ini_set('session.use_strict_mode', '1');
+    ini_set('session.use_only_cookies', '1');
+    ini_set('session.use_trans_sid', '0');
     session_set_cookie_params([
         'lifetime' => 0,
         'path'     => '/',
-        'secure'   => !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off',
+        'secure'   => (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https'),
         'httponly'  => true,
         'samesite'  => 'Lax',
     ]);
     session_start();
+    // NOTE: session_regenerate_id(true) est appelé uniquement lors du login (login.php)
+    // et pas à chaque chargement pour éviter de casser les onglets/AJAX concurrents.
 }
 
 // Session timeout : idle 30 min / absolu 8 h
@@ -190,6 +221,31 @@ if (php_sapi_name() !== 'cli' && isset($_SESSION['user'])) {
         exit;
     }
     $_SESSION['last_activity'] = $now;
+
+    // Re-validation du statut utilisateur toutes les 5 minutes
+    if (!isset($_SESSION['last_revalidate'])) {
+        $_SESSION['last_revalidate'] = $now;
+    }
+    if (($now - $_SESSION['last_revalidate']) > 300) {
+        $_SESSION['last_revalidate'] = $now;
+        try {
+            $uid = (int)($_SESSION['user']['id'] ?? 0);
+            if ($uid > 0) {
+                $revalStmt = $pdo->prepare("SELECT actif FROM utilisateurs WHERE id = ?");
+                $revalStmt->execute([$uid]);
+                $active = $revalStmt->fetchColumn();
+                if ($active === false || (int)$active !== 1) {
+                    session_unset();
+                    session_destroy();
+                    header('Location: auth/login.php?deactivated=1');
+                    exit;
+                }
+            }
+        } catch (\Throwable $e) {
+            // En cas d'erreur DB, ne pas déconnecter (fail-open temporaire)
+            error_log('[ALERTE] Échec re-validation session: ' . $e->getMessage());
+        }
+    }
 }
 
 // ============================================================
@@ -201,7 +257,17 @@ if (php_sapi_name() !== 'cli' && !$__is_cli) {
     $currentScript = basename($_SERVER['PHP_SELF'] ?? '');
     if ($currentScript !== 'install.php') {
         try {
-            $checkAdmin = $pdo->query("SELECT COUNT(*) FROM utilisateurs u JOIN roles r ON r.id = u.role_id WHERE r.code IN ('PROPRIETAIRE','ADMIN') AND u.actif = 1")->fetchColumn();
+            // Vérifier via user_roles (RBAC dynamique) OU role_id legacy
+            $checkAdminStmt = $pdo->prepare(
+                "SELECT COUNT(*) FROM (
+                    SELECT DISTINCT u.id FROM utilisateurs u
+                    LEFT JOIN user_roles ur ON ur.user_id = u.id
+                    LEFT JOIN roles r ON r.id = ur.role_id AND r.actif = 1
+                    WHERE r.code IN (?, ?, ?, ?) AND u.actif = 1
+                 ) AS t"
+            );
+            $checkAdminStmt->execute([ROLE_DIRECTEUR, ROLE_ADMIN, ROLE_MAGASINIER, ROLE_VENDEUR]);
+            $checkAdmin = $checkAdminStmt->fetchColumn();
             $checkMag   = $pdo->query("SELECT COUNT(*) FROM magasins WHERE actif = 1")->fetchColumn();
             if ((int)$checkAdmin === 0 || (int)$checkMag === 0) {
                 header('Location: install.php');
@@ -220,6 +286,10 @@ if (php_sapi_name() === 'cli') {
     $_SESSION = [];
 }
 $_SESSION['csp_nonce'] = bin2hex(random_bytes(16));
+
+function csp_nonce(): string {
+    return $_SESSION['csp_nonce'] ?? '';
+}
 
 // ============================================================
 //  3bis. EN-TÊTES DE SÉCURITÉ
@@ -286,18 +356,65 @@ function date_fr($datetime, $avec_heure = true): string {
 }
 
 /**
- * Rediriger proprement.
+ * Rediriger proprement. Valide l'URL pour prévenir les open redirects.
  */
 function redirect(string $url): void {
+    // Prévenir les open redirects : autoriser uniquement les URLs relatives ou vers le même hôte
+    if (preg_match('#^https?://#i', $url)) {
+        $host = parse_url($url, PHP_URL_HOST);
+        $allowedHost = $_SERVER['HTTP_HOST'] ?? 'localhost';
+        if ($host !== $allowedHost) {
+            $url = '/';
+        }
+    }
     header('Location: ' . $url);
     exit;
 }
 
 /**
- * Retourne le nonce CSP courant pour la session.
+ * Rôle principal de l'utilisateur courant.
+ * Priorité : table user_roles (RBAC dynamique) → ENUM legacy → vide.
+ * Retourne le rôle de plus haut niveau si l'utilisateur en a plusieurs.
  */
-function csp_nonce(): string {
-    return $_SESSION['csp_nonce'] ?? '';
+function user_role(): string {
+    global $pdo;
+    $uid = user_id();
+    if ($uid <= 0) return $_SESSION['user']['role'] ?? '';
+
+    static $cache = [];
+    if (isset($cache[$uid])) return $cache[$uid];
+
+    try {
+        $stmt = $pdo->prepare(
+            'SELECT r.code FROM user_roles ur
+             JOIN roles r ON r.id = ur.role_id AND r.actif = 1
+             WHERE ur.user_id = :uid
+             ORDER BY r.code ASC'
+        );
+        $stmt->execute([':uid' => $uid]);
+        $roles = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        if (!empty($roles)) {
+            // Retourner le rôle de plus haut niveau
+            $best = '';
+            $bestLevel = -1;
+            foreach ($roles as $r) {
+                $level = ROLE_HIERARCHIE[$r] ?? 0;
+                if ($level > $bestLevel) {
+                    $bestLevel = $level;
+                    $best = $r;
+                }
+            }
+            $cache[$uid] = $best;
+            return $best;
+        }
+    } catch (Throwable $e) {
+        // Table user_roles n'existe peut-être pas encore
+    }
+
+    // Fallback : ENUM legacy dans la session
+    $fallback = $_SESSION['user']['role'] ?? '';
+    $cache[$uid] = $fallback;
+    return $fallback;
 }
 
 /**
@@ -351,11 +468,6 @@ function user_courant(): ?array {
     return $_SESSION['user'] ?? null;
 }
 
-/** Rôle courant. */
-function user_role(): string {
-    return $_SESSION['user']['role'] ?? '';
-}
-
 /** ID de l'utilisateur courant. */
 function user_id(): int {
     return (int)($_SESSION['user']['id'] ?? 0);
@@ -396,11 +508,20 @@ function exiger_connexion(): void {
 
 /**
  * Exige que l'utilisateur ait l'un des rôles autorisés.
+ * Vérifie TOUS les rôles de l'utilisateur (multi-rôle supporté).
  * Sinon : page 403.
  */
 function exiger_role(string ...$roles_autorises): void {
     exiger_connexion();
-    if (!in_array(user_role(), $roles_autorises, true)) {
+    $userRoles = user_roles();
+    $hasRole = false;
+    foreach ($userRoles as $r) {
+        if (in_array($r, $roles_autorises, true)) {
+            $hasRole = true;
+            break;
+        }
+    }
+    if (!$hasRole) {
         http_response_code(403);
         include __DIR__ . '/../includes/acces_refuse.php';
         exit;
@@ -545,18 +666,39 @@ function exiger_permission(string $cle_permission): void {
     }
 }
 
+/**
+ * Variante JSON de exiger_permission — pour les endpoints API.
+ * Retourne du JSON au lieu de faire une redirection HTML.
+ */
+function exiger_permission_api(string $cle_permission): void {
+    if (!est_connecte()) {
+        json_out(['error' => 'Authentification requise.'], 401);
+    }
+    if (!peut($cle_permission)) {
+        json_out(['error' => 'Permission refusée : ' . $cle_permission], 403);
+    }
+}
+
 // ============================================================
 //  6. PROTECTION CSRF
 // ============================================================
 
 /**
  * Générer ou récupérer un token CSRF.
+ * Régénère le token s'il est absent (première requête de session).
  */
 function csrf_token(): string {
     if (empty($_SESSION['csrf_token'])) {
         $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
     }
     return $_SESSION['csrf_token'];
+}
+
+/**
+ * Régénérer le token CSRF (appeler après chaque validation réussie).
+ */
+function csrf_rotate(): void {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 }
 
 /**
@@ -570,7 +712,7 @@ function csrf_field(): string {
  * Valider un token CSRF.
  */
 function csrf_validate(): bool {
-    $token = input_string($_POST['_csrf_token'] ?? $_POST['csrf_token'] ?? '');
+    $token = input_string($_POST['_csrf_token'] ?? $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
     if (empty($token) || empty($_SESSION['csrf_token'])) {
         return false;
     }
@@ -591,19 +733,31 @@ function verify_csrf_token(mixed $token = ''): bool {
 require_once __DIR__ . '/../includes/db_functions.php';
 require_once __DIR__ . '/../includes/usine_functions.php';
 
+function _get_client_ip(): string {
+    // Respecter le proxy si configuré
+    if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+        $ips = explode(',', $_SERVER['HTTP_X_FORWARDED_FOR']);
+        return trim($ips[0]);
+    }
+    if (!empty($_SERVER['HTTP_X_REAL_IP'])) {
+        return $_SERVER['HTTP_X_REAL_IP'];
+    }
+    return $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+}
+
 function login_attempt(string $login): void {
     global $pdo;
-    db_login_attempt_insert($pdo, $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1', $login);
+    db_login_attempt_insert($pdo, _get_client_ip(), $login);
 }
 
 function login_rate_limited(): bool {
     global $pdo;
-    return db_login_attempt_count($pdo, $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1') >= 5;
+    return db_login_attempt_count($pdo, _get_client_ip()) >= 5;
 }
 
 function clear_login_attempts(string $login): void {
     global $pdo;
-    db_login_attempt_clear($pdo, $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1', $login);
+    db_login_attempt_clear($pdo, _get_client_ip(), $login);
 }
 
 // ============================================================
@@ -700,8 +854,167 @@ function pagination_links(int $page, int $total_pages, string $base_url = '?'): 
 }
 
 require_once __DIR__ . '/../includes/db_functions.php';
-require_once __DIR__ . '/../includes/usine_functions.php';
 require_once __DIR__ . '/../includes/helpers.php';
+
+// ============================================================
+//  8bis. SIDEBAR UNIFIÉE — source de vérité unique
+// ============================================================
+
+/**
+ * Construit les sections de navigation pour la sidebar.
+ * Utilisée par header.php (pages PHP) ET base.html.twig (pages Twig).
+ */
+function build_nav_sections(int $nb_alertes_topbar = 0, int $nb_alertes_peremption = 0): array {
+    if (!est_connecte()) return [];
+
+    $can_manage_stock = peut_gerer_stock();
+    $can_bill = peut_facturer();
+    $can_admin = peut_administrer();
+
+    $nav_sections = [];
+
+    // PILOTAGE
+    $sec_pilotage = [
+        'key' => 'pilotage', 'titre' => 'Pilotage', 'icon' => 'bi-speedometer2',
+        'items' => [['slug' => 'tableau_bord', 'label' => 'Accueil', 'icon' => 'bi-speedometer2', 'color' => 'clr-indigo']],
+    ];
+    if ($can_admin) {
+        $sec_pilotage['items'][] = ['slug' => 'statistiques', 'label' => 'Statistiques', 'icon' => 'bi-graph-up', 'color' => 'clr-indigo'];
+    }
+    $sec_pilotage['items'][] = ['slug' => 'documentation', 'label' => 'Documentation', 'icon' => 'bi-journal-bookmark', 'color' => 'clr-indigo'];
+
+    // STOCK & ACHATS
+    $sec_stock = ['key' => 'stock', 'titre' => 'Stock & Achats', 'icon' => 'bi-boxes', 'items' => []];
+    if ($can_manage_stock) {
+        $sec_stock['items'][] = ['slug' => 'stock', 'label' => 'Stock', 'icon' => 'bi-boxes', 'color' => 'clr-emerald'];
+        $sec_stock['items'][] = ['slug' => 'articles', 'label' => 'Articles', 'icon' => 'bi-box-seam', 'color' => 'clr-emerald'];
+        if (peut('articles_gerer')) {
+            $sec_stock['items'][] = ['slug' => 'categories', 'label' => 'Catégories', 'icon' => 'bi-tags', 'color' => 'clr-emerald'];
+        }
+        $sec_stock['items'][] = ['slug' => 'fournisseurs', 'label' => 'Fournisseurs', 'icon' => 'bi-truck', 'color' => 'clr-emerald'];
+        if (peut('achats_consulter')) {
+            $sec_stock['items'][] = ['slug' => 'commandes_fournisseur', 'label' => "Commandes d'achat", 'icon' => 'bi-cart-plus', 'color' => 'clr-emerald'];
+        }
+        if (peut('receptions_consulter')) {
+            $sec_stock['items'][] = ['slug' => 'receptions', 'label' => 'Réceptions', 'icon' => 'bi-box-seam', 'color' => 'clr-emerald'];
+        }
+        if (peut('pertes_consulter')) {
+            $sec_stock['items'][] = ['slug' => 'pertes', 'label' => 'Pertes fournisseur', 'icon' => 'bi-exclamation-triangle', 'color' => 'clr-emerald'];
+        }
+        if (peut('tarification_consulter')) {
+            $sec_stock['items'][] = ['slug' => 'tarification', 'label' => 'Tarification', 'icon' => 'bi-currency-exchange', 'color' => 'clr-emerald'];
+        }
+        if (peut('inventaire_consulter')) {
+            $sec_stock['items'][] = ['slug' => 'inventaire', 'label' => 'Inventaire', 'icon' => 'bi-clipboard-check', 'color' => 'clr-emerald'];
+        }
+        $sec_stock['items'][] = ['slug' => 'mouvements', 'label' => 'Mouvements', 'icon' => 'bi-arrow-left-right', 'color' => 'clr-emerald'];
+        $sec_stock['items'][] = ['slug' => 'peremptions', 'label' => 'Péremptions', 'icon' => 'bi-calendar-week', 'color' => 'clr-emerald', 'badge' => $nb_alertes_peremption];
+        $sec_stock['items'][] = ['slug' => 'suggestions_achat', 'label' => "Suggestions d'achat", 'icon' => 'bi-bag-check', 'color' => 'clr-emerald', 'badge' => $nb_alertes_topbar];
+        if (peut('articles_consulter') && (peut('transferts_gerer') || peut('transferts_consulter'))) {
+            $sec_stock['items'][] = ['slug' => 'etiquettes', 'label' => 'Étiquettes rayon', 'icon' => 'bi-tag', 'color' => 'clr-emerald'];
+            $sec_stock['items'][] = ['slug' => 'transferts', 'label' => 'Transferts', 'icon' => 'bi-arrow-repeat', 'color' => 'clr-emerald'];
+        }
+    }
+
+    // USINE & PRODUCTION
+    $sec_usine = ['key' => 'usine', 'titre' => 'Usine & Production', 'icon' => 'bi-building', 'items' => []];
+    if (peut('usine_consulter')) {
+        $sec_usine['items'][] = ['slug' => 'usine', 'label' => 'Tableau de bord', 'icon' => 'bi-building', 'color' => 'clr-amber'];
+    }
+    if (peut('production_consulter')) {
+        $sec_usine['items'][] = ['slug' => 'productions', 'label' => 'Productions', 'icon' => 'bi-gear-wide-connected', 'color' => 'clr-amber'];
+    }
+    if (peut('usine_gerer')) {
+        $sec_usine['items'][] = ['slug' => 'matieres_premieres', 'label' => 'Matières premières', 'icon' => 'bi-droplet', 'color' => 'clr-amber'];
+        $sec_usine['items'][] = ['slug' => 'recettes', 'label' => 'Recettes', 'icon' => 'bi-journal-text', 'color' => 'clr-amber'];
+    }
+    if (peut('usine_consulter')) {
+        $sec_usine['items'][] = ['slug' => 'stock_usine', 'label' => 'Stock usine', 'icon' => 'bi-boxes', 'color' => 'clr-amber'];
+    }
+    if (peut('personnel_consulter')) {
+        $sec_usine['items'][] = ['slug' => 'personnel', 'label' => 'Personnel', 'icon' => 'bi-people', 'color' => 'clr-amber'];
+    }
+    if (peut('presence_consulter')) {
+        $sec_usine['items'][] = ['slug' => 'presences', 'label' => 'Présences', 'icon' => 'bi-clock-history', 'color' => 'clr-amber'];
+    }
+    if (peut('machines_consulter')) {
+        $sec_usine['items'][] = ['slug' => 'machines', 'label' => 'Machines', 'icon' => 'bi-gear-wide-connected', 'color' => 'clr-amber'];
+    }
+    if (peut('horaires_consulter')) {
+        $sec_usine['items'][] = ['slug' => 'horaires', 'label' => 'Horaires', 'icon' => 'bi-clock', 'color' => 'clr-amber'];
+    }
+    if (peut('notifications_usine_consulter')) {
+        global $pdo;
+        $nb_notifs = 0;
+        if (function_exists('db_notifications_nb_non_lues')) {
+            try { $nb_notifs = db_notifications_nb_non_lues($pdo, user_role(), $_SESSION['user']['id'] ?? null); } catch (Throwable $ignored) {}
+        }
+        $sec_usine['items'][] = ['slug' => 'notifications', 'label' => 'Notifications', 'icon' => 'bi-bell', 'color' => 'clr-amber', 'badge' => $nb_notifs];
+    }
+
+    // VENTES & CAISSE
+    $sec_ventes = ['key' => 'ventes', 'titre' => 'Ventes & Caisse', 'icon' => 'bi-cash-coin', 'items' => []];
+    if ($can_bill) {
+        $sec_ventes['items'][] = ['slug' => 'caisse', 'label' => 'Caisse (POS)', 'icon' => 'bi-cash-coin', 'color' => 'clr-sky'];
+        $sec_ventes['items'][] = ['slug' => 'factures', 'label' => 'Factures', 'icon' => 'bi-receipt', 'color' => 'clr-sky'];
+        if (peut('retours_consulter')) {
+            $sec_ventes['items'][] = ['slug' => 'retours', 'label' => 'Retours / SAV', 'icon' => 'bi-arrow-counterclockwise', 'color' => 'clr-sky'];
+        }
+        if (peut('promotions_consulter')) {
+            $sec_ventes['items'][] = ['slug' => 'promotions', 'label' => 'Promotions & Remises', 'icon' => 'bi-percent', 'color' => 'clr-sky'];
+        }
+        $sec_ventes['items'][] = ['slug' => 'cloture', 'label' => 'Clôture de Caisse', 'icon' => 'bi-lock-fill', 'color' => 'clr-sky'];
+        if (peut('clients_consulter')) {
+            $sec_ventes['items'][] = ['slug' => 'clients', 'label' => 'Clients & fidélité', 'icon' => 'bi-people', 'color' => 'clr-sky'];
+        }
+    }
+
+    // ADMINISTRATION
+    $sec_admin = ['key' => 'admin', 'titre' => 'Administration', 'icon' => 'bi-gear', 'items' => []];
+    if ($can_admin || peut('roles_gerer') || peut('parametres_gerer')) {
+        $sec_admin['items'][] = ['slug' => 'depenses', 'label' => 'Dépenses', 'icon' => 'bi-wallet2', 'color' => 'clr-rose'];
+        $sec_admin['items'][] = ['slug' => 'utilisateurs', 'label' => 'Utilisateurs', 'icon' => 'bi-people', 'color' => 'clr-violet'];
+        $sec_admin['items'][] = ['slug' => 'magasins', 'label' => 'Magasins', 'icon' => 'bi-shop', 'color' => 'clr-violet'];
+        $sec_admin['items'][] = ['slug' => 'parametres', 'label' => 'Paramètres', 'icon' => 'bi-gear', 'color' => 'clr-violet'];
+        if (peut('roles_gerer')) {
+            $sec_admin['items'][] = ['slug' => 'roles', 'label' => 'Rôles & Permissions', 'icon' => 'bi-shield-lock', 'color' => 'clr-violet'];
+        }
+    }
+    if (peut('audit_consulter')) {
+        $sec_admin['items'][] = ['slug' => 'audit', 'label' => "Journal d'activité", 'icon' => 'bi-clock-history', 'color' => 'clr-slate'];
+    }
+    if (peut('audit_consulter')) {
+        $sec_admin['items'][] = ['slug' => 'conformite', 'label' => 'Traçabilité des ventes', 'icon' => 'bi-shield-check', 'color' => 'clr-slate'];
+    }
+
+    foreach ([$sec_pilotage, $sec_stock, $sec_usine, $sec_ventes, $sec_admin] as $sec) {
+        if (!empty($sec['items'])) {
+            $nav_sections[] = $sec;
+        }
+    }
+
+    return $nav_sections;
+}
+
+/**
+ * Rendu HTML de la sidebar (pour les templates Twig).
+ * Capture le HTML produit par includes/sidebar.php.
+ */
+function render_sidebar_html(): string {
+    $nav_sections = build_nav_sections(
+        (int)($GLOBALS['nb_alertes_topbar'] ?? 0),
+        (int)($GLOBALS['nb_alertes_peremption'] ?? 0)
+    );
+    $page_courante = $_GET['_page'] ?? str_replace('.php', '', basename($_SERVER['PHP_SELF']));
+    $user = user_courant();
+    $role = user_role();
+    $initiale = mb_substr(trim($user['nom'] ?? 'U'), 0, 1, 'UTF-8');
+    $app_nom = param_app_name();
+
+    ob_start();
+    include __DIR__ . '/../includes/sidebar.php';
+    return ob_get_clean();
+}
 
 // ============================================================
 //  9. MOTEUR DE TEMPLATE TWIG
@@ -709,6 +1022,7 @@ require_once __DIR__ . '/../includes/helpers.php';
 $loader = new \Twig\Loader\FilesystemLoader(__DIR__ . '/../templates');
 $twig = new \Twig\Environment($loader, [
     'cache'       => false,
+    'autoescape'  => 'html',
     'auto_reload' => true,
     'strict_variables' => $__is_production,
 ]);
@@ -723,6 +1037,7 @@ $twig->addFunction(new \Twig\TwigFunction('param_app_name', 'param_app_name'));
 $twig->addFunction(new \Twig\TwigFunction('peut', 'peut'));
 $twig->addFunction(new \Twig\TwigFunction('generate_signed_url', 'generate_signed_url'));
 $twig->addFunction(new \Twig\TwigFunction('url_sign', 'url_sign'));
+$twig->addFunction(new \Twig\TwigFunction('render_sidebar_html', 'render_sidebar_html', ['is_safe' => ['html']]));
 $twig->addFunction(new \Twig\TwigFunction('user_magasin_id', 'user_magasin_id'));
 $twig->addFunction(new \Twig\TwigFunction('user_magasin_nom', function() use ($pdo) { return user_magasin_nom($pdo); }));
 $twig->addFunction(new \Twig\TwigFunction('pagination_links', function($pagination, string $base_url = '?', array $extra = []) {

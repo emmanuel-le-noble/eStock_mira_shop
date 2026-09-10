@@ -53,7 +53,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delet
     }
 
     $role_code = $_POST['role_code'] ?? '';
-    $protected = ['PROPRIETAIRE', 'ADMIN', 'MAGASINIER', 'VENDEUR'];
+    $protected = ROLES_PROTEGES;
     if (in_array($role_code, $protected, true)) {
         flash_error('Les rôles système ne peuvent pas être supprimés.');
         redirect('roles.php');
@@ -201,7 +201,7 @@ include __DIR__ . '/includes/header.php';
                            class="btn btn-outline-primary btn-sm" title="Modifier">
                             <i class="bi bi-pencil"></i>
                         </a>
-                        <?php if (!in_array($r['code'], ['PROPRIETAIRE', 'ADMIN', 'MAGASINIER', 'VENDEUR'], true)): ?>
+                        <?php if (!in_array($r['code'], ROLES_PROTEGES, true)): ?>
                             <form method="post" class="d-inline" onsubmit="return confirm('Supprimer ce rôle ?')">
                                 <?= csrf_field() ?>
                                 <input type="hidden" name="action" value="delete_role">

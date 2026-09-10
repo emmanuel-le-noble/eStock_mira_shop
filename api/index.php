@@ -83,11 +83,11 @@ match (true) {
 
     // --- Prix fournisseurs ---
     $resource === 'prix_fournisseur' && $method === 'GET'
-        && isset($segments[1]) && $segments[1] === 'article' && $id > 0
-        => handle_prix_fournisseur_article($id),
+        && isset($segments[1]) && $segments[1] === 'article' && isset($segments[2]) && (int)$segments[2] > 0
+        => handle_prix_fournisseur_article((int)$segments[2]),
     $resource === 'prix_fournisseur' && $method === 'GET'
-        && isset($segments[1]) && $segments[1] === 'fournisseur' && $id > 0
-        => handle_prix_fournisseur_par_fournisseur($id),
+        && isset($segments[1]) && $segments[1] === 'fournisseur' && isset($segments[2]) && (int)$segments[2] > 0
+        => handle_prix_fournisseur_par_fournisseur((int)$segments[2]),
     $resource === 'prix_fournisseur' && $method === 'POST'
         => handle_prix_fournisseur_set(),
     $resource === 'prix_fournisseur' && $method === 'GET'
@@ -187,6 +187,72 @@ match (true) {
     $resource === 'transfert_usine' && $method === 'POST'
         => handle_transfert_usine(),
 
+    // --- Machines ---
+    $resource === 'machines' && $method === 'GET'
+        => handle_machines_list(),
+    $resource === 'machines' && $method === 'POST'
+        => handle_machine_create(),
+    $resource === 'machines' && $id > 0 && $method === 'GET'
+        => handle_machine_get($id),
+    $resource === 'machines' && $id > 0 && $method === 'PUT'
+        => handle_machine_update($id),
+    $resource === 'machines' && $id > 0
+        && isset($segments[1]) && $segments[1] === 'demarrer' && $method === 'POST'
+        => handle_machine_demarrer($id),
+    $resource === 'machines' && $id > 0
+        && isset($segments[1]) && $segments[1] === 'arreter' && $method === 'POST'
+        => handle_machine_arreter($id),
+    $resource === 'machines' && $id > 0
+        && isset($segments[1]) && $segments[1] === 'etat' && $method === 'POST'
+        => handle_machine_set_etat($id),
+    $resource === 'machines' && $id > 0
+        && isset($segments[1]) && $segments[1] === 'historique' && $method === 'GET'
+        => handle_machine_historique($id),
+
+    // --- Notifications ---
+    $resource === 'notifications' && $method === 'GET'
+        => handle_notifications_list(),
+    $resource === 'notifications' && $id > 0
+        && isset($segments[1]) && $segments[1] === 'lire' && $method === 'POST'
+        => handle_notification_marquer_lue($id),
+    $resource === 'notifications' && $method === 'POST'
+        && isset($segments[0]) && $segments[0] === 'notifications' && empty($id)
+        && isset($_GET['action']) && $_GET['action'] === 'tout_lu'
+        => handle_notifications_tout_lu(),
+    $resource === 'notifications' && $id > 0 && $method === 'DELETE'
+        => handle_notification_supprimer($id),
+
+    // --- Horaires ---
+    $resource === 'horaires' && $method === 'GET'
+        => handle_horaires_list(),
+    $resource === 'horaires' && $method === 'POST'
+        => handle_horaire_create(),
+    $resource === 'horaires' && $method === 'DELETE'
+        => handle_horaire_delete(),
+
+    // --- Catégories pertes ---
+    $resource === 'categories_pertes' && $method === 'GET'
+        => handle_categories_pertes_list(),
+    $resource === 'categories_pertes' && $method === 'POST'
+        => handle_categorie_perte_create(),
+
+    // --- Rendement ---
+    $resource === 'rendement' && $id > 0 && $method === 'GET'
+        => handle_rendement_production($id),
+    $resource === 'rendement' && $id > 0
+        && isset($segments[1]) && $segments[1] === 'categories' && $method === 'GET'
+        => handle_rendement_categories($id),
+    $resource === 'rapport_matiere_production' && $method === 'GET'
+        => handle_rapport_matiere_production(),
+
+    // --- Présences avec retards ---
+    $resource === 'presences_retards' && $method === 'GET'
+        => handle_presences_avec_retards(),
+
+    // --- Dashboard enrichi ---
+    $resource === 'usine_dashboard_enrichi' && $method === 'GET'
+        => handle_usine_dashboard_enrichi(),
+
     // --- Tableau de bord usine ---
     $resource === 'usine_dashboard' && $method === 'GET'
         => handle_usine_dashboard(),
@@ -212,6 +278,18 @@ match (true) {
         => handle_role_permissions($id),
     $resource === 'roles' && $id > 0 && isset($segments[2]) && $segments[2] === 'permissions' && $method === 'PUT'
         => handle_role_permissions_save($id),
+
+    // --- Équipes ---
+    $resource === 'equipes' && $method === 'GET'
+        => handle_equipes_list(),
+    $resource === 'equipes' && $method === 'POST'
+        => handle_equipe_create(),
+    $resource === 'equipes' && $id > 0 && $method === 'GET'
+        => handle_equipe_get($id),
+    $resource === 'equipes' && $id > 0 && $method === 'PUT'
+        => handle_equipe_update($id),
+    $resource === 'equipes' && $id > 0 && $method === 'DELETE'
+        => handle_equipe_delete($id),
 
     // --- 404 ---
     default
@@ -346,12 +424,7 @@ function handle_articles_list(): void {
 }
 
 function handle_article_create(): void {
-    if (!est_connecte()) {
-        json_out(['error' => 'Non autorisé. Connectez-vous.'], 401);
-    }
-    if (!peut_administrer()) {
-        json_out(['error' => 'Accès refusé. Droits insuffisants.'], 403);
-    }
+    exiger_permission_api('articles_gerer');
     if (!api_csrf_ok()) {
         json_out(['error' => 'Token CSRF invalide.'], 403);
     }
@@ -389,7 +462,7 @@ function handle_article_create(): void {
         $pdo->beginTransaction();
         $new_id = db_article_insert($pdo, $data);
         // db_article_insert() initialise déjà le stock via db_stock_magasin_init_for_article().
-        // Aucun mouvement 'Entree' supplémentaire ne doit être créé ici.
+        // Aucun mouvement 'ENTREE' supplémentaire ne doit être créé ici.
         $pdo->commit();
         suivre_activite('MODIFICATION_ARTICLE', 'Création article #' . $new_id . ' via API — ' . $nom);
         json_out(['success' => true, 'id' => $new_id, 'message' => 'Article créé.'], 201);
@@ -403,12 +476,7 @@ function handle_article_create(): void {
 }
 
 function handle_article_update(int $id): void {
-    if (!est_connecte()) {
-        json_out(['error' => 'Non autorisé. Connectez-vous.'], 401);
-    }
-    if (!peut_administrer()) {
-        json_out(['error' => 'Accès refusé. Droits insuffisants.'], 403);
-    }
+    exiger_permission_api('articles_gerer');
     if (!api_csrf_ok()) {
         json_out(['error' => 'Token CSRF invalide.'], 403);
     }
@@ -456,12 +524,7 @@ function handle_article_update(int $id): void {
 }
 
 function handle_article_delete(int $id): void {
-    if (!est_connecte()) {
-        json_out(['error' => 'Non autorisé. Connectez-vous.'], 401);
-    }
-    if (!peut_administrer()) {
-        json_out(['error' => 'Accès refusé. Droits insuffisants.'], 403);
-    }
+    exiger_permission_api('articles_gerer');
     if (!api_csrf_ok()) {
         json_out(['error' => 'Token CSRF invalide.'], 403);
     }
@@ -812,7 +875,7 @@ function handle_caisse_sync(): void {
                 $pdo,
                 $lv['articleId'],
                 user_courant()['id'] ?? null,
-                'Vente',
+                'VENTE',
                 $lv['quantite'],
                 'Vente hors-ligne ' . $numero . $lots_info,
                 $magasinId
@@ -930,6 +993,9 @@ function handle_promo_check(): void {
     if (!est_connecte()) {
         json_out(['error' => 'Non autorisé.'], 401);
     }
+    if (!peut('caisse_gerer') && !peut('ventes_consulter')) {
+        json_out(['error' => 'Accès refusé.'], 403);
+    }
     $code  = input_string($_GET['code'] ?? '');
     $total = (float)($_GET['total'] ?? 0);
 
@@ -1004,7 +1070,7 @@ function handle_clients_search(): void {
 // ============================================================
 
 function handle_prix_fournisseur_article(int $article_id): void {
-    exiger_permission('prix_fournisseur_consulter');
+    exiger_permission_api('prix_fournisseur_consulter');
     global $pdo;
     $historique = db_fournisseur_prix_historique($pdo, $article_id);
     $actuel = db_prix_fournisseur_ref($pdo, $article_id);
@@ -1012,14 +1078,14 @@ function handle_prix_fournisseur_article(int $article_id): void {
 }
 
 function handle_prix_fournisseur_par_fournisseur(int $fournisseur_id): void {
-    exiger_permission('prix_fournisseur_consulter');
+    exiger_permission_api('prix_fournisseur_consulter');
     global $pdo;
     $historique = db_fournisseur_prix_historique_par_fournisseur($pdo, $fournisseur_id);
     json_out(['historique' => $historique]);
 }
 
 function handle_prix_fournisseur_set(): void {
-    exiger_permission('prix_fournisseur_gerer');
+    exiger_permission_api('prix_fournisseur_gerer');
     if (!api_csrf_ok()) json_out(['error' => 'CSRF invalide.'], 403);
     global $pdo;
     $data = json_decode(file_get_contents('php://input'), true) ?: $_POST;
@@ -1035,7 +1101,7 @@ function handle_prix_fournisseur_set(): void {
 }
 
 function handle_prix_fournisseur_calculer(): void {
-    exiger_permission('articles_consulter');
+    exiger_permission_api('articles_consulter');
     global $pdo;
     $article_id = (int)($_GET['article_id'] ?? 0);
     $quantite = (int)($_GET['quantite'] ?? 1);
@@ -1050,7 +1116,7 @@ function handle_prix_fournisseur_calculer(): void {
 // ============================================================
 
 function handle_tranches_list(): void {
-    exiger_permission('tarification_consulter');
+    exiger_permission_api('tarification_consulter');
     global $pdo;
     $article_id = !empty($_GET['article_id']) ? (int)$_GET['article_id'] : null;
     $categorie_id = !empty($_GET['categorie_id']) ? (int)$_GET['categorie_id'] : null;
@@ -1059,7 +1125,7 @@ function handle_tranches_list(): void {
 }
 
 function handle_tranche_get(int $id): void {
-    exiger_permission('tarification_consulter');
+    exiger_permission_api('tarification_consulter');
     global $pdo;
     $tranche = db_tranche_get_by_id($pdo, $id);
     if (!$tranche) json_out(['error' => 'Tranche introuvable.'], 404);
@@ -1067,7 +1133,7 @@ function handle_tranche_get(int $id): void {
 }
 
 function handle_tranche_create(): void {
-    exiger_permission('tarification_gerer');
+    exiger_permission_api('tarification_gerer');
     if (!api_csrf_ok()) json_out(['error' => 'CSRF invalide.'], 403);
     global $pdo;
     $data = json_decode(file_get_contents('php://input'), true) ?: $_POST;
@@ -1078,7 +1144,7 @@ function handle_tranche_create(): void {
 }
 
 function handle_tranche_update(int $id): void {
-    exiger_permission('tarification_gerer');
+    exiger_permission_api('tarification_gerer');
     if (!api_csrf_ok()) json_out(['error' => 'CSRF invalide.'], 403);
     global $pdo;
     $data = json_decode(file_get_contents('php://input'), true) ?: $_POST;
@@ -1088,7 +1154,7 @@ function handle_tranche_update(int $id): void {
 }
 
 function handle_tranche_delete(int $id): void {
-    exiger_permission('tarification_gerer');
+    exiger_permission_api('tarification_gerer');
     if (!api_csrf_ok()) json_out(['error' => 'CSRF invalide.'], 403);
     global $pdo;
     db_tranche_delete($pdo, $id);
@@ -1101,7 +1167,7 @@ function handle_tranche_delete(int $id): void {
 // ============================================================
 
 function handle_reception_get(int $id): void {
-    exiger_permission('receptions_consulter');
+    exiger_permission_api('receptions_consulter');
     global $pdo;
     $reception = db_reception_get_by_id($pdo, $id);
     if (!$reception) json_out(['error' => 'Réception introuvable.'], 404);
@@ -1110,7 +1176,7 @@ function handle_reception_get(int $id): void {
 }
 
 function handle_receptions_par_commande(int $commande_id): void {
-    exiger_permission('receptions_consulter');
+    exiger_permission_api('receptions_consulter');
     global $pdo;
     $receptions = db_receptions_par_commande($pdo, $commande_id);
     foreach ($receptions as &$r) {
@@ -1120,7 +1186,7 @@ function handle_receptions_par_commande(int $commande_id): void {
 }
 
 function handle_reception_create(): void {
-    exiger_permission('receptions_gerer');
+    exiger_permission_api('receptions_gerer');
     if (!api_csrf_ok()) json_out(['error' => 'CSRF invalide.'], 403);
     global $pdo;
     $data = json_decode(file_get_contents('php://input'), true) ?: $_POST;
@@ -1168,7 +1234,7 @@ function handle_reception_create(): void {
 }
 
 function handle_reception_valider(int $id): void {
-    exiger_permission('receptions_gerer');
+    exiger_permission_api('receptions_gerer');
     if (!api_csrf_ok()) json_out(['error' => 'CSRF invalide.'], 403);
     global $pdo;
     try {
@@ -1182,7 +1248,7 @@ function handle_reception_valider(int $id): void {
 }
 
 function handle_reception_annuler(int $id): void {
-    exiger_permission('receptions_gerer');
+    exiger_permission_api('receptions_gerer');
     if (!api_csrf_ok()) json_out(['error' => 'CSRF invalide.'], 403);
     global $pdo;
     $data = json_decode(file_get_contents('php://input'), true) ?: $_POST;
@@ -1196,7 +1262,7 @@ function handle_reception_annuler(int $id): void {
 // ============================================================
 
 function handle_pertes_list(): void {
-    exiger_permission('pertes_consulter');
+    exiger_permission_api('pertes_consulter');
     global $pdo;
     $fournisseur_id = !empty($_GET['fournisseur_id']) ? (int)$_GET['fournisseur_id'] : null;
     $magasin_id = !empty($_GET['magasin_id']) ? (int)$_GET['magasin_id'] : null;
@@ -1211,27 +1277,28 @@ function handle_pertes_list(): void {
 // ============================================================
 
 function handle_matieres_premieres_list(): void {
-    exiger_permission('usine_consulter');
+    exiger_permission_api('usine_consulter');
     global $pdo;
     $matieres = db_matiere_premiere_list($pdo);
     json_out(['data' => $matieres]);
 }
 
 function handle_matiere_premiere_create(): void {
-    exiger_permission('usine_gerer');
+    exiger_permission_api('usine_gerer');
     if (!api_csrf_ok()) json_out(['error' => 'CSRF invalide.'], 403);
     global $pdo;
     $input = json_decode(file_get_contents('php://input'), true) ?: $_POST;
     $data = [
         'nom' => trim($input['nom'] ?? ''),
-        'code_barre' => trim($input['code_barre'] ?? ''),
+        'reference' => trim($input['reference'] ?? ''),
         'unite_mesure' => trim($input['unite_mesure'] ?? 'KG'),
         'categorie_id' => !empty($input['categorie_id']) ? (int)$input['categorie_id'] : null,
-        'prix_achat' => (float)($input['prix_achat'] ?? 0),
-        'seuil_alerte' => (int)($input['seuil_alerte'] ?? 10),
+        'cout_reference' => (float)($input['cout_reference'] ?? 0),
+        'stock_minimum' => (int)($input['stock_minimum'] ?? 10),
+        'fournisseur_id' => !empty($input['fournisseur_id']) ? (int)$input['fournisseur_id'] : null,
     ];
-    if (empty($data['nom']) || empty($data['code_barre'])) {
-        json_out(['error' => 'Nom et code-barres requis.'], 422);
+    if (empty($data['nom'])) {
+        json_out(['error' => 'Le nom est requis.'], 422);
     }
     $id = db_matiere_premiere_insert($pdo, $data);
     suivre_activite('MATIERE_PREMIERE_AJOUTEE', "Matière #$id: {$data['nom']}");
@@ -1239,17 +1306,18 @@ function handle_matiere_premiere_create(): void {
 }
 
 function handle_matiere_premiere_update(int $id): void {
-    exiger_permission('usine_gerer');
+    exiger_permission_api('usine_gerer');
     if (!api_csrf_ok()) json_out(['error' => 'CSRF invalide.'], 403);
     global $pdo;
     $input = json_decode(file_get_contents('php://input'), true) ?: $_POST;
     $data = [
         'nom' => trim($input['nom'] ?? ''),
-        'code_barre' => trim($input['code_barre'] ?? ''),
+        'reference' => trim($input['reference'] ?? ''),
         'unite_mesure' => trim($input['unite_mesure'] ?? 'KG'),
         'categorie_id' => !empty($input['categorie_id']) ? (int)$input['categorie_id'] : null,
-        'prix_achat' => (float)($input['prix_achat'] ?? 0),
-        'seuil_alerte' => (int)($input['seuil_alerte'] ?? 10),
+        'cout_reference' => (float)($input['cout_reference'] ?? 0),
+        'stock_minimum' => (int)($input['stock_minimum'] ?? 10),
+        'fournisseur_id' => !empty($input['fournisseur_id']) ? (int)$input['fournisseur_id'] : null,
         'actif' => isset($input['actif']) ? (int)$input['actif'] : 1,
     ];
     db_matiere_premiere_update($pdo, $id, $data);
@@ -1262,14 +1330,14 @@ function handle_matiere_premiere_update(int $id): void {
 // ============================================================
 
 function handle_recettes_list(): void {
-    exiger_permission('usine_consulter');
+    exiger_permission_api('usine_consulter');
     global $pdo;
     $recettes = db_recettes_list($pdo);
     json_out(['data' => $recettes]);
 }
 
 function handle_recette_get(int $id): void {
-    exiger_permission('usine_consulter');
+    exiger_permission_api('usine_consulter');
     global $pdo;
     $recette = db_recette_get($pdo, $id);
     if (!$recette) json_out(['error' => 'Recette introuvable.'], 404);
@@ -1277,7 +1345,7 @@ function handle_recette_get(int $id): void {
 }
 
 function handle_recette_create(): void {
-    exiger_permission('usine_gerer');
+    exiger_permission_api('usine_gerer');
     if (!api_csrf_ok()) json_out(['error' => 'CSRF invalide.'], 403);
     global $pdo;
     $input = json_decode(file_get_contents('php://input'), true) ?: [];
@@ -1298,7 +1366,7 @@ function handle_recette_create(): void {
 }
 
 function handle_recette_update(int $id): void {
-    exiger_permission('usine_gerer');
+    exiger_permission_api('usine_gerer');
     if (!api_csrf_ok()) json_out(['error' => 'CSRF invalide.'], 403);
     global $pdo;
     $input = json_decode(file_get_contents('php://input'), true) ?: [];
@@ -1315,7 +1383,7 @@ function handle_recette_update(int $id): void {
 }
 
 function handle_recette_delete(int $id): void {
-    exiger_permission('usine_gerer');
+    exiger_permission_api('usine_gerer');
     if (!api_csrf_ok()) json_out(['error' => 'CSRF invalide.'], 403);
     global $pdo;
     db_recette_delete($pdo, $id);
@@ -1328,7 +1396,7 @@ function handle_recette_delete(int $id): void {
 // ============================================================
 
 function handle_productions_list(): void {
-    exiger_permission('production_consulter');
+    exiger_permission_api('production_consulter');
     global $pdo;
     $statut = $_GET['statut'] ?? null;
     $productions = db_productions_list($pdo, $statut);
@@ -1336,7 +1404,7 @@ function handle_productions_list(): void {
 }
 
 function handle_production_get(int $id): void {
-    exiger_permission('production_consulter');
+    exiger_permission_api('production_consulter');
     global $pdo;
     $prod = db_production_get($pdo, $id);
     if (!$prod) json_out(['error' => 'Production introuvable.'], 404);
@@ -1344,7 +1412,7 @@ function handle_production_get(int $id): void {
 }
 
 function handle_production_create(): void {
-    exiger_permission('production_gerer');
+    exiger_permission_api('production_gerer');
     if (!api_csrf_ok()) json_out(['error' => 'CSRF invalide.'], 403);
     global $pdo;
     $input = json_decode(file_get_contents('php://input'), true) ?: [];
@@ -1365,7 +1433,7 @@ function handle_production_create(): void {
 }
 
 function handle_production_demarrer(int $id): void {
-    exiger_permission('production_gerer');
+    exiger_permission_api('production_gerer');
     if (!api_csrf_ok()) json_out(['error' => 'CSRF invalide.'], 403);
     global $pdo;
     try {
@@ -1379,7 +1447,7 @@ function handle_production_demarrer(int $id): void {
 }
 
 function handle_production_cloturer(int $id): void {
-    exiger_permission('production_cloturer');
+    exiger_permission_api('production_cloturer');
     if (!api_csrf_ok()) json_out(['error' => 'CSRF invalide.'], 403);
     global $pdo;
     $input = json_decode(file_get_contents('php://input'), true) ?: [];
@@ -1403,7 +1471,7 @@ function handle_production_cloturer(int $id): void {
 }
 
 function handle_production_annuler(int $id): void {
-    exiger_permission('production_gerer');
+    exiger_permission_api('production_gerer');
     if (!api_csrf_ok()) json_out(['error' => 'CSRF invalide.'], 403);
     global $pdo;
     $input = json_decode(file_get_contents('php://input'), true) ?: [];
@@ -1418,7 +1486,7 @@ function handle_production_annuler(int $id): void {
 }
 
 function handle_production_set_employes(int $id): void {
-    exiger_permission('production_gerer');
+    exiger_permission_api('production_gerer');
     if (!api_csrf_ok()) json_out(['error' => 'CSRF invalide.'], 403);
     global $pdo;
     $input = json_decode(file_get_contents('php://input'), true) ?: [];
@@ -1432,14 +1500,14 @@ function handle_production_set_employes(int $id): void {
 // ============================================================
 
 function handle_employes_list(): void {
-    exiger_permission('personnel_consulter');
+    exiger_permission_api('personnel_consulter');
     global $pdo;
     $employes = db_employes_list($pdo);
     json_out(['data' => $employes]);
 }
 
 function handle_employe_create(): void {
-    exiger_permission('personnel_gerer');
+    exiger_permission_api('personnel_gerer');
     if (!api_csrf_ok()) json_out(['error' => 'CSRF invalide.'], 403);
     global $pdo;
     $input = json_decode(file_get_contents('php://input'), true) ?: [];
@@ -1459,7 +1527,7 @@ function handle_employe_create(): void {
 }
 
 function handle_employe_update(int $id): void {
-    exiger_permission('personnel_gerer');
+    exiger_permission_api('personnel_gerer');
     if (!api_csrf_ok()) json_out(['error' => 'CSRF invalide.'], 403);
     global $pdo;
     $input = json_decode(file_get_contents('php://input'), true) ?: [];
@@ -1480,7 +1548,7 @@ function handle_employe_update(int $id): void {
 // ============================================================
 
 function handle_presences_list(): void {
-    exiger_permission('presence_consulter');
+    exiger_permission_api('presence_consulter');
     global $pdo;
     $date = $_GET['date'] ?? date('Y-m-d');
     $presences = db_presences_list_date($pdo, $date);
@@ -1488,7 +1556,7 @@ function handle_presences_list(): void {
 }
 
 function handle_presence_upsert(): void {
-    exiger_permission('presence_gerer');
+    exiger_permission_api('presence_gerer');
     if (!api_csrf_ok()) json_out(['error' => 'CSRF invalide.'], 403);
     global $pdo;
     $input = json_decode(file_get_contents('php://input'), true) ?: $_POST;
@@ -1511,7 +1579,7 @@ function handle_presence_upsert(): void {
 // ============================================================
 
 function handle_stock_usine_list(): void {
-    exiger_permission('usine_consulter');
+    exiger_permission_api('usine_consulter');
     global $pdo;
     $stock_mp = db_stock_mp_list($pdo);
     $stock_pf = db_stock_pf_usine_list($pdo);
@@ -1523,7 +1591,7 @@ function handle_stock_usine_list(): void {
 // ============================================================
 
 function handle_transfert_usine(): void {
-    exiger_permission('transfert_usine_gerer');
+    exiger_permission_api('transfert_usine_gerer');
     if (!api_csrf_ok()) json_out(['error' => 'CSRF invalide.'], 403);
     global $pdo;
     $input = json_decode(file_get_contents('php://input'), true) ?: [];
@@ -1550,7 +1618,7 @@ function handle_transfert_usine(): void {
 // ============================================================
 
 function handle_usine_dashboard(): void {
-    exiger_permission('usine_consulter');
+    exiger_permission_api('usine_consulter');
     global $pdo;
     $dashboard = db_usine_dashboard($pdo);
     json_out(['data' => $dashboard]);
@@ -1561,7 +1629,7 @@ function handle_usine_dashboard(): void {
 // ============================================================
 
 function handle_production_rapport(): void {
-    exiger_permission('production_consulter');
+    exiger_permission_api('production_consulter');
     global $pdo;
     $date_debut = $_GET['date_debut'] ?? date('Y-m-01');
     $date_fin = $_GET['date_fin'] ?? date('Y-m-t');
@@ -1575,14 +1643,15 @@ function handle_production_rapport(): void {
 // ============================================================
 
 function handle_roles_list(): void {
-    exiger_permission('roles_consulter');
+    exiger_permission_api('roles_consulter');
     global $pdo;
     $roles = db_roles_list($pdo);
     json_out(['data' => $roles]);
 }
 
 function handle_role_create(): void {
-    exiger_permission('roles_gerer');
+    exiger_permission_api('roles_gerer');
+    if (!api_csrf_ok()) json_out(['error' => 'CSRF invalide.'], 403);
     global $pdo;
     $data = json_decode(file_get_contents('php://input'), true) ?? $_POST;
     $code = strtoupper(trim($data['code'] ?? ''));
@@ -1605,7 +1674,8 @@ function handle_role_create(): void {
 }
 
 function handle_role_update(int $id): void {
-    exiger_permission('roles_gerer');
+    exiger_permission_api('roles_gerer');
+    if (!api_csrf_ok()) json_out(['error' => 'CSRF invalide.'], 403);
     global $pdo;
     $data = json_decode(file_get_contents('php://input'), true) ?? $_POST;
     $code = strtoupper(trim($data['code'] ?? ''));
@@ -1624,7 +1694,8 @@ function handle_role_update(int $id): void {
 }
 
 function handle_role_delete(int $id): void {
-    exiger_permission('roles_gerer');
+    exiger_permission_api('roles_gerer');
+    if (!api_csrf_ok()) json_out(['error' => 'CSRF invalide.'], 403);
     global $pdo;
     $code = strtoupper(trim($_GET['code'] ?? ''));
 
@@ -1632,7 +1703,14 @@ function handle_role_delete(int $id): void {
         json_out(['error' => 'Code requis.'], 422);
     }
 
-    $protected = ['PROPRIETAIRE', 'ADMIN', 'MAGASINIER', 'VENDEUR'];
+    // Utiliser l'ID de l'URL si le code n'est pas fourni en GET
+    if ($code === '' && $id > 0) {
+        $stmt = $pdo->prepare("SELECT code FROM roles WHERE id = ?");
+        $stmt->execute([$id]);
+        $code = strtoupper(trim($stmt->fetchColumn() ?? ''));
+    }
+
+    $protected = ROLES_PROTEGES;
     if (in_array($code, $protected, true)) {
         json_out(['error' => 'Rôle système non supprimable.'], 403);
     }
@@ -1652,7 +1730,7 @@ function handle_role_delete(int $id): void {
 // ============================================================
 
 function handle_permissions_list(): void {
-    exiger_permission('roles_consulter');
+    exiger_permission_api('roles_consulter');
     global $pdo;
     $perms = db_permissions_all($pdo);
     $grouped = [];
@@ -1663,7 +1741,7 @@ function handle_permissions_list(): void {
 }
 
 function handle_role_permissions(int $role_id): void {
-    exiger_permission('roles_consulter');
+    exiger_permission_api('roles_consulter');
     global $pdo;
     $stmt = $pdo->prepare("SELECT code FROM roles WHERE id = ?");
     $stmt->execute([$role_id]);
@@ -1676,7 +1754,8 @@ function handle_role_permissions(int $role_id): void {
 }
 
 function handle_role_permissions_save(int $role_id): void {
-    exiger_permission('roles_gerer');
+    exiger_permission_api('roles_gerer');
+    if (!api_csrf_ok()) json_out(['error' => 'CSRF invalide.'], 403);
     global $pdo;
     $stmt = $pdo->prepare("SELECT code FROM roles WHERE id = ?");
     $stmt->execute([$role_id]);
@@ -1692,4 +1771,377 @@ function handle_role_permissions_save(int $role_id): void {
     db_permissions_save_for_role($pdo, $code, $perm_ids);
     suivre_activite('MODIFICATION_PERMISSIONS_API', 'Permissions rôle ' . $code . ' mises à jour');
     json_out(['ok' => true, 'count' => count($perm_ids)]);
+}
+
+// ============================================================
+//  MACHINES HANDLERS
+// ============================================================
+
+function handle_machines_list(): void {
+    exiger_permission_api('machines_consulter');
+    global $pdo;
+    $machines = db_machines_list($pdo);
+    json_out(['data' => $machines]);
+}
+
+function handle_machine_get(int $id): void {
+    exiger_permission_api('machines_consulter');
+    global $pdo;
+    $machine = db_machine_get($pdo, $id);
+    if (!$machine) json_out(['error' => 'Machine introuvable.'], 404);
+    $historique = db_machine_historique($pdo, $id);
+    $machine['historique'] = $historique;
+    json_out(['data' => $machine]);
+}
+
+function handle_machine_create(): void {
+    exiger_permission_api('machines_gerer');
+    if (!api_csrf_ok()) json_out(['error' => 'CSRF invalide.'], 403);
+    global $pdo;
+    $input = json_decode(file_get_contents('php://input'), true) ?: $_POST;
+    if (empty($input['nom'])) {
+        json_out(['error' => 'Nom de machine requis.'], 422);
+    }
+    $id = db_machine_insert($pdo, [
+        'reference' => trim($input['reference'] ?? ''),
+        'nom' => trim($input['nom']),
+        'type' => trim($input['type'] ?? ''),
+        'description' => trim($input['description'] ?? ''),
+        'etat' => $input['etat'] ?? 'ARRETEE',
+        'actif' => (int)($input['actif'] ?? 1),
+    ]);
+    suivre_activite('MACHINE_CREEE', "Machine #$id: {$input['nom']}");
+    json_out(['success' => true, 'id' => $id], 201);
+}
+
+function handle_machine_update(int $id): void {
+    exiger_permission_api('machines_gerer');
+    if (!api_csrf_ok()) json_out(['error' => 'CSRF invalide.'], 403);
+    global $pdo;
+    $input = json_decode(file_get_contents('php://input'), true) ?: $_POST;
+    db_machine_update($pdo, $id, [
+        'nom' => trim($input['nom'] ?? ''),
+        'type' => trim($input['type'] ?? ''),
+        'description' => trim($input['description'] ?? ''),
+        'actif' => isset($input['actif']) ? (int)$input['actif'] : 1,
+    ]);
+    suivre_activite('MACHINE_MODIFIEE', "Machine #$id modifiée");
+    json_out(['success' => true]);
+}
+
+function handle_machine_demarrer(int $id): void {
+    exiger_permission_api('machines_demarrer');
+    if (!api_csrf_ok()) json_out(['error' => 'CSRF invalide.'], 403);
+    global $pdo;
+    $input = json_decode(file_get_contents('php://input'), true) ?: [];
+    try {
+        $production_id = !empty($input['production_id']) ? (int)$input['production_id'] : null;
+        db_machine_demarrer($pdo, $id, $production_id);
+        $machine = db_machine_get($pdo, $id);
+        try {
+            db_notif_machine($pdo, $machine['type'] ?? 'Machine', $machine['nom'], 'démarrée');
+        } catch (Throwable $ignored) {}
+        suivre_activite('MACHINE_DEMARREE', "Machine #$id démarrée");
+        json_out(['success' => true]);
+    } catch (Throwable $e) {
+        error_log('Erreur machine demarrer: ' . $e->getMessage());
+        json_out(['error' => 'Erreur lors du démarrage de la machine.'], 422);
+    }
+}
+
+function handle_machine_arreter(int $id): void {
+    exiger_permission_api('machines_demarrer');
+    if (!api_csrf_ok()) json_out(['error' => 'CSRF invalide.'], 403);
+    global $pdo;
+    $input = json_decode(file_get_contents('php://input'), true) ?: [];
+    try {
+        db_machine_arreter($pdo, $id, $input['motif'] ?? null);
+        $machine = db_machine_get($pdo, $id);
+        // Mapper le motif vers l'action de notification
+        $motif = $input['motif'] ?? null;
+        $notif_action = match(true) {
+            stripos($motif ?? '', 'panne') !== false => 'en panne',
+            stripos($motif ?? '', 'maintenance') !== false => 'en maintenance',
+            default => 'arrêtée',
+        };
+        try {
+            db_notif_machine($pdo, $machine['type'] ?? 'Machine', $machine['nom'], $notif_action,
+                !empty($motif) ? "Motif : {$motif}" : null);
+        } catch (Throwable $ignored) {}
+        suivre_activite('MACHINE_ARRETEE', "Machine #$id $notif_action");
+        json_out(['success' => true]);
+    } catch (Throwable $e) {
+        error_log('Erreur machine arreter: ' . $e->getMessage());
+        json_out(['error' => "Erreur lors de l'arrêt de la machine."], 422);
+    }
+}
+
+function handle_machine_set_etat(int $id): void {
+    exiger_permission_api('machines_gerer');
+    if (!api_csrf_ok()) json_out(['error' => 'CSRF invalide.'], 403);
+    global $pdo;
+    $input = json_decode(file_get_contents('php://input'), true) ?: [];
+    $etat = $input['etat'] ?? '';
+    $valid_etats = ['ARRETEE', 'EN_FONCTIONNEMENT', 'EN_MAINTENANCE', 'EN_PANNE'];
+    if (!in_array($etat, $valid_etats, true)) {
+        json_out(['error' => 'État invalide. Valeurs acceptées : ' . implode(', ', $valid_etats)], 422);
+    }
+    try {
+        db_machine_set_etat($pdo, $id, $etat, $input['motif'] ?? null);
+        suivre_activite('MACHINE_ETAT', "Machine #$id → $etat");
+        json_out(['success' => true]);
+    } catch (Throwable $e) {
+        error_log('Erreur machine set_etat: ' . $e->getMessage());
+        json_out(['error' => "Erreur lors du changement d'état de la machine."], 422);
+    }
+}
+
+function handle_machine_historique(int $id): void {
+    exiger_permission_api('machines_consulter');
+    global $pdo;
+    $historique = db_machine_historique($pdo, $id);
+    json_out(['data' => $historique]);
+}
+
+// ============================================================
+//  NOTIFICATIONS HANDLERS
+// ============================================================
+
+function handle_notifications_list(): void {
+    exiger_permission_api('notifications_usine_consulter');
+    global $pdo;
+    $type = $_GET['type'] ?? null;
+    $non_lues = !empty($_GET['non_lues']);
+    $role = user_role();
+    $user_id = $_SESSION['user']['id'] ?? null;
+    $notifications = db_notifications_list($pdo, $type, $role, $user_id, $non_lues);
+    $nb_non_lues = db_notifications_nb_non_lues($pdo, $role, $user_id);
+    json_out(['data' => $notifications, 'nb_non_lues' => $nb_non_lues]);
+}
+
+function handle_notification_marquer_lue(int $id): void {
+    exiger_permission_api('notifications_usine_consulter');
+    if (!api_csrf_ok()) {
+        json_out(['error' => 'Token CSRF invalide.'], 403);
+    }
+    global $pdo;
+    db_notification_marquer_lue($pdo, $id);
+    json_out(['success' => true]);
+}
+
+function handle_notifications_tout_lu(): void {
+    exiger_permission_api('notifications_usine_consulter');
+    if (!api_csrf_ok()) {
+        json_out(['error' => 'Token CSRF invalide.'], 403);
+    }
+    global $pdo;
+    $role = user_role();
+    $user_id = $_SESSION['user']['id'] ?? null;
+    db_notification_tout_lu($pdo, $role, $user_id);
+    json_out(['success' => true]);
+}
+
+function handle_notification_supprimer(int $id): void {
+    exiger_permission_api('notifications_usine_gerer');
+    if (!api_csrf_ok()) {
+        json_out(['error' => 'Token CSRF invalide.'], 403);
+    }
+    global $pdo;
+    db_notification_supprimer($pdo, $id);
+    json_out(['success' => true]);
+}
+
+// ============================================================
+//  HORAIRES HANDLERS
+// ============================================================
+
+function handle_horaires_list(): void {
+    exiger_permission_api('horaires_consulter');
+    global $pdo;
+    $horaires = db_horaires_list($pdo);
+    json_out(['data' => $horaires]);
+}
+
+function handle_horaire_create(): void {
+    exiger_permission_api('horaires_gerer');
+    if (!api_csrf_ok()) json_out(['error' => 'CSRF invalide.'], 403);
+    global $pdo;
+    $input = json_decode(file_get_contents('php://input'), true) ?: $_POST;
+    if (empty($input['nom']) || empty($input['jour']) || empty($input['heure_debut']) || empty($input['heure_fin'])) {
+        json_out(['error' => 'Nom, jour, heure début et heure fin requis.'], 422);
+    }
+    $valid_jours = ['LUNDI','MARDI','MERCREDI','JEUDI','VENDREDI','SAMEDI','DIMANCHE'];
+    $jour = strtoupper(trim($input['jour']));
+    if (!in_array($jour, $valid_jours, true)) {
+        json_out(['error' => 'Jour invalide.'], 422);
+    }
+    db_horaire_insert($pdo, trim($input['nom']), $jour,
+        $input['heure_debut'], $input['heure_fin'],
+        (int)($input['tolerance_retard_minutes'] ?? 5));
+    suivre_activite('HORAIRE_CREE', "Horaire {$input['nom']} — $jour");
+    json_out(['success' => true], 201);
+}
+
+function handle_horaire_delete(): void {
+    exiger_permission_api('horaires_gerer');
+    if (!api_csrf_ok()) json_out(['error' => 'CSRF invalide.'], 403);
+    global $pdo;
+    $nom = $_GET['nom'] ?? '';
+    $jour = $_GET['jour'] ?? null;
+    if (empty($nom)) json_out(['error' => 'Nom requis.'], 422);
+    db_horaire_delete($pdo, $nom, $jour);
+    json_out(['success' => true]);
+}
+
+// ============================================================
+//  CATÉGORIES PERTES HANDLERS
+// ============================================================
+
+function handle_categories_pertes_list(): void {
+    exiger_permission_api('categories_pertes_consulter');
+    global $pdo;
+    $cats = db_categories_pertes_list($pdo);
+    json_out(['data' => $cats]);
+}
+
+function handle_categorie_perte_create(): void {
+    exiger_permission_api('categories_pertes_gerer');
+    if (!api_csrf_ok()) json_out(['error' => 'CSRF invalide.'], 403);
+    global $pdo;
+    $input = json_decode(file_get_contents('php://input'), true) ?: $_POST;
+    if (empty($input['nom'])) json_out(['error' => 'Nom requis.'], 422);
+    $id = db_categorie_perte_insert($pdo, trim($input['nom']), $input['description'] ?? null);
+    json_out(['success' => true, 'id' => $id], 201);
+}
+
+// ============================================================
+//  RENDEMENT HANDLERS
+// ============================================================
+
+function handle_rendement_production(int $id): void {
+    exiger_permission_api('rendement_consulter');
+    global $pdo;
+    $rendement = db_rendement_production($pdo, $id);
+    if (!$rendement) json_out(['error' => 'Production introuvable.'], 404);
+    json_out(['data' => $rendement]);
+}
+
+function handle_rendement_categories(int $id): void {
+    exiger_permission_api('rendement_consulter');
+    global $pdo;
+    $cats = db_rendement_par_categorie($pdo, $id);
+    json_out(['data' => $cats]);
+}
+
+function handle_rapport_matiere_production(): void {
+    exiger_permission_api('rendement_consulter');
+    global $pdo;
+    $date_debut = $_GET['date_debut'] ?? date('Y-m-01');
+    $date_fin = $_GET['date_fin'] ?? date('Y-m-d');
+    $rapport = db_rapport_matiere_production($pdo, $date_debut, $date_fin);
+    json_out(['data' => $rapport]);
+}
+
+// ============================================================
+//  PRÉSENCES AVEC RETARDS HANDLER
+// ============================================================
+
+function handle_presences_avec_retards(): void {
+    exiger_permission_api('presence_consulter');
+    global $pdo;
+    $date = $_GET['date'] ?? date('Y-m-d');
+    $presences = db_presences_avec_retards($pdo, $date);
+    $absents = db_employes_absents($pdo, $date);
+    json_out(['presences' => $presences, 'absents' => $absents]);
+}
+
+// ============================================================
+//  DASHBOARD ENRICHI HANDLER
+// ============================================================
+
+function handle_usine_dashboard_enrichi(): void {
+    exiger_permission_api('usine_consulter');
+    global $pdo;
+    $dashboard = db_usine_dashboard_enrichi($pdo);
+    json_out(['data' => $dashboard]);
+}
+
+// ============================================================
+//  ÉQUIPES HANDLERS
+// ============================================================
+
+function handle_equipes_list(): void {
+    exiger_permission_api('equipes_consulter');
+    global $pdo;
+    $type = $_GET['type'] ?? null;
+    $equipes = db_equipes_list($pdo, $type);
+    json_out(['data' => $equipes]);
+}
+
+function handle_equipe_get(int $id): void {
+    exiger_permission_api('equipes_consulter');
+    global $pdo;
+    $equipe = db_equipe_get($pdo, $id);
+    if (!$equipe) json_out(['error' => 'Équipe introuvable.'], 404);
+    $equipe['membres'] = db_equipe_membres($pdo, $id);
+    $equipe['magasins'] = db_equipe_magasins($pdo, $id);
+    json_out(['data' => $equipe]);
+}
+
+function handle_equipe_create(): void {
+    exiger_permission_api('equipes_gerer');
+    if (!api_csrf_ok()) json_out(['error' => 'Token CSRF invalide.'], 403);
+    global $pdo;
+    $input = json_decode(file_get_contents('php://input'), true);
+    if (!is_array($input)) $input = [];
+    $nom = input_string($input['nom'] ?? '');
+    if ($nom === '') json_out(['error' => 'Nom requis.'], 400);
+    $id = db_equipe_insert($pdo, [
+        'nom' => $nom,
+        'description' => $input['description'] ?? null,
+        'type' => $input['type'] ?? 'BOUTIQUE',
+        'chef_equipe_id' => $input['chef_equipe_id'] ?? null,
+    ]);
+    if (!empty($input['membres'])) {
+        db_equipe_set_membres($pdo, $id, $input['membres']);
+    }
+    if (!empty($input['magasins'])) {
+        db_equipe_set_magasins($pdo, $id, $input['magasins']);
+    }
+    suivre_activite('EQUIPE_CREE', 'Équipe créée: ' . $nom);
+    json_out(['success' => true, 'id' => $id]);
+}
+
+function handle_equipe_update(int $id): void {
+    exiger_permission_api('equipes_gerer');
+    if (!api_csrf_ok()) json_out(['error' => 'Token CSRF invalide.'], 403);
+    global $pdo;
+    $equipe = db_equipe_get($pdo, $id);
+    if (!$equipe) json_out(['error' => 'Équipe introuvable.'], 404);
+    $input = json_decode(file_get_contents('php://input'), true);
+    if (!is_array($input)) $input = [];
+    $nom = input_string($input['nom'] ?? $equipe['nom']);
+    db_equipe_update($pdo, $id, [
+        'nom' => $nom,
+        'description' => $input['description'] ?? $equipe['description'],
+        'type' => $input['type'] ?? $equipe['type'],
+        'chef_equipe_id' => $input['chef_equipe_id'] ?? $equipe['chef_equipe_id'],
+    ]);
+    if (isset($input['membres'])) {
+        db_equipe_set_membres($pdo, $id, $input['membres']);
+    }
+    if (isset($input['magasins'])) {
+        db_equipe_set_magasins($pdo, $id, $input['magasins']);
+    }
+    suivre_activite('EQUIPE_MODIFIEE', 'Équipe modifiée: #' . $id);
+    json_out(['success' => true]);
+}
+
+function handle_equipe_delete(int $id): void {
+    exiger_permission_api('equipes_gerer');
+    if (!api_csrf_ok()) json_out(['error' => 'Token CSRF invalide.'], 403);
+    global $pdo;
+    db_equipe_delete($pdo, $id);
+    suivre_activite('EQUIPE_SUPPRIMEE', 'Équipe désactivée: #' . $id);
+    json_out(['success' => true]);
 }

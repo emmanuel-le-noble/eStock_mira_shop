@@ -77,5 +77,5 @@ echo $twig->render('transferts.html.twig', [
     'magasins'      => $magasins,
     'articles'      => $articles,
     'magasin_id'    => $magasin_id,
-    'can_transfer'  => in_array($u['role'] ?? '', [ROLE_DIRECTEUR, ROLE_ADMIN], true),
+    'can_transfer'  => peut('transferts_gerer'),
 ]);

@@ -1,163 +1,288 @@
-{# templates/documentation.html.twig — Guide utilisateur par rôle #}
+{# templates/documentation.html.twig — Guide utilisateur complet #}
 {% extends 'base.html.twig' %}
 
 {% block body %}
-    {# ── En-tête de bienvenue ── #}
-    <div class="card shadow-sm mb-4 border-0">
-        <div class="card-body">
-            <div class="d-flex align-items-center gap-3">
-                <div class="stat-icon" style="width:52px;height:52px;font-size:1.6rem;">
-                    <i class="bi bi-journal-bookmark"></i>
-                </div>
-                <div>
-                    <h1 class="h4 mb-1">Documentation & guide d'utilisation</h1>
-                    <p class="text-muted mb-0">
-                        Bienvenue <strong>{{ user.nom|default('') }}</strong> ({{ role|default('') }}) —
-                        magasin actif : <strong>{{ nom_magasin|default('—') }}</strong>.
-                        Choisissez un onglet pour découvrir les fonctions de chaque rôle et la marche à suivre.
-                    </p>
-                </div>
+{# ── En-tête ── #}
+<div class="card shadow-sm mb-4 border-0">
+    <div class="card-body py-4">
+        <div class="d-flex align-items-center gap-3">
+            <div class="stat-icon" style="width:56px;height:56px;font-size:1.8rem;">
+                <i class="bi bi-journal-bookmark"></i>
+            </div>
+            <div class="flex-grow-1">
+                <h1 class="h4 mb-1">Documentation & guide d'utilisation</h1>
+                <p class="text-muted mb-0 small">
+                    Connecté en tant que <strong>{{ user.nom|default('') }}</strong>
+                    ({{ role_courant|default('') }}) — magasin :
+                    <strong>{{ nom_magasin|default('—') }}</strong>.
+                </p>
+            </div>
+            <div class="d-none d-md-block">
+                <span class="badge text-bg-light fs-6 px-3 py-2">
+                    <i class="bi bi-book me-1"></i> {{ zones|length }} zones · {{ zones|map(z => z.modules|length)|reduce((a,b) => a+b) }} modules
+                </span>
             </div>
         </div>
     </div>
+</div>
 
-    {# ── Onglets par rôle (masqués si un seul rôle visible) ── #}
-    {% if liste_roles|length > 1 %}
-    <ul class="nav nav-tabs mb-4" role="tablist">
-        {% for r in liste_roles %}
-            <li class="nav-item" role="presentation">
-                <button class="nav-link {{ r == role_courant ? 'active' : '' }}" data-bs-toggle="tab"
-                        data-bs-target="#tab-doc-{{ r|lower }}" type="button" role="tab">
-                    <i class="bi {{ guides[r].icon|default('bi-person') }} me-1"></i> {{ r }}
-                </button>
-            </li>
-        {% endfor %}
-    </ul>
-    {% endif %}
+{# ── Barre de recherche ── #}
+<div class="card shadow-sm mb-4 border-0">
+    <div class="card-body py-3">
+        <div class="input-group">
+            <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+            <input type="text" id="docSearch" class="form-control form-control-lg"
+                   placeholder="Rechercher un module, une fonctionnalité…"
+                   autocomplete="off">
+            <button class="btn btn-outline-secondary d-none" id="docSearchClear" type="button">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+        <div id="docSearchResults" class="mt-2 small text-muted d-none"></div>
+    </div>
+</div>
 
-    <div class="tab-content">
-        {% for r in liste_roles %}
-            {% set g = guides[r] %}
-            <div class="tab-pane fade {{ r == role_courant ? 'show active' : '' }}" id="tab-doc-{{ r|lower }}" role="tabpanel">
-                <div class="card shadow-sm mb-4">
-                    <div class="card-body">
-                        <div class="d-flex align-items-start gap-3">
-                            <span class="badge text-bg-{{ g.couleur|default('primary') }} px-3 py-2 fs-6">
-                                <i class="bi {{ g.icon|default('bi-person') }} me-1"></i> {{ g.role_nom }}
-                            </span>
-                            <p class="mb-0 text-muted">{{ g.intro|default('') }}</p>
-                        </div>
-                    </div>
-                </div>
+{# ── Tabs par zone ── #}
+<ul class="nav nav-tabs nav-fill mb-4" role="tablist" id="docTabs">
+    {% for z in zones %}
+        <li class="nav-item" role="presentation">
+            <button class="nav-link {{ loop.first ? 'active' : '' }}" data-bs-toggle="tab"
+                    data-bs-target="#zone-{{ z.color }}" type="button" role="tab">
+                <i class="bi {{ z.icon }} me-1"></i> {{ z.titre }}
+                <span class="badge text-bg-secondary ms-1" style="font-size:.65rem;">{{ z.modules|length }}</span>
+            </button>
+        </li>
+    {% endfor %}
+</ul>
 
-                <div class="row g-3">
-                    {% for mod in g.modules %}
-                        <div class="col-md-6">
-                            <div class="card shadow-sm h-100 doc-module">
-                                <div class="card-body">
-                                    <div class="d-flex align-items-center gap-2 mb-2">
-                                        <span class="stat-icon"><i class="bi {{ mod.icon }}"></i></span>
-                                        <h2 class="h6 mb-0">{{ mod.titre }}</h2>
+{# ── Contenu des tabs ── #}
+<div class="tab-content" id="docTabContent">
+    {% for z in zones %}
+        <div class="tab-pane fade {{ loop.first ? 'show active' : '' }}" id="zone-{{ z.color }}" role="tabpanel">
+            <div class="row g-4">
+                {% for mod in z.modules %}
+                    <div class="col-md-6 col-lg-4 doc-module-card" data-page="{{ mod.page }}" data-search="{{ mod.titre|lower }} {{ mod.description|lower }}">
+                        <div class="card shadow-sm h-100 border-0 doc-module">
+                            <div class="card-body">
+                                {# En-tête du module #}
+                                <div class="d-flex align-items-start gap-2 mb-3">
+                                    <span class="stat-icon flex-shrink-0" style="width:42px;height:42px;">
+                                        <i class="bi {{ mod.icon }}"></i>
+                                    </span>
+                                    <div class="flex-grow-1">
+                                        <h2 class="h6 mb-1 d-flex align-items-center gap-2">
+                                            {{ mod.titre }}
+                                            {% if mod.read_only is defined and mod.read_only %}
+                                                <span class="badge text-bg-warning" style="font-size:.55rem;" title="Lecture seule">lecture seule</span>
+                                            {% endif %}
+                                        </h2>
+                                        <p class="text-muted small mb-0">{{ mod.description }}</p>
                                     </div>
-                                    <p class="text-muted small mb-3">{{ mod.description }}</p>
-                                    {% if mod.etapes is defined and mod.etapes|length > 0 %}
-                                        <ol class="doc-steps mb-3">
-                                            {% for etape in mod.etapes %}
-                                                <li>{{ etape }}</li>
-                                            {% endfor %}
-                                        </ol>
-                                    {% endif %}
-                                    {% if mod.page is defined and mod.page != '' %}
-                                        <a href="{{ base_url }}{{ mod.page }}.php" class="btn btn-sm btn-outline-primary">
-                                            <i class="bi bi-box-arrow-up-right me-1"></i> Ouvrir {{ mod.titre }}
-                                        </a>
-                                    {% endif %}
                                 </div>
+
+                                {# Étapes #}
+                                {% if mod.etapes is defined and mod.etapes|length > 0 %}
+                                    <ol class="doc-steps mb-3">
+                                        {% for etape in mod.etapes %}
+                                            <li>{{ etape }}</li>
+                                        {% endfor %}
+                                    </ol>
+                                {% endif %}
+
+                                {# Lien #}
+                                {% if mod.page is defined and mod.page != '' %}
+                                    <a href="{{ mod.page }}.php" class="btn btn-sm btn-outline-primary">
+                                        <i class="bi bi-box-arrow-up-right me-1"></i> Ouvrir
+                                    </a>
+                                {% endif %}
                             </div>
                         </div>
-                    {% endfor %}
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    {% endfor %}
+</div>
+
+{# ── Section : Astuces & raccourcis ── #}
+<div class="card border-0 bg-light mt-5">
+    <div class="card-body">
+        <h2 class="h6 text-uppercase text-muted mb-3"><i class="bi bi-keyboard me-1"></i> Raccourcis clavier</h2>
+        <div class="row g-3">
+            <div class="col-md-4">
+                <div class="d-flex gap-2">
+                    <i class="bi bi-keyboard text-primary fs-5"></i>
+                    <div>
+                        <strong>Caisse (POS)</strong>
+                        <p class="small text-muted mb-0">
+                            <kbd>F2</kbd> Vider le panier ·
+                            <kbd>F8</kbd> Valider la vente ·
+                            <kbd>Entrée</kbd> Valider le code-barres
+                        </p>
+                    </div>
                 </div>
             </div>
-        {% endfor %}
-    </div>
-
-    {# ── Astuces générales ── #}
-    <div class="card border-0 bg-light mt-5">
-        <div class="card-body">
-            <h2 class="h6 text-uppercase text-muted mb-3"><i class="bi bi-lightbulb me-1"></i> Astuces & raccourcis</h2>
-            <div class="row g-3">
-                <div class="col-md-4">
-                    <div class="d-flex gap-2">
-                        <i class="bi bi-keyboard text-primary"></i>
-                        <div>
-                            <strong>Caisse</strong>
-                            <p class="small text-muted mb-0">F2 : vider le panier · F8 : valider la vente · douchette = saisie code-barres + Entrée.</p>
-                        </div>
+            <div class="col-md-4">
+                <div class="d-flex gap-2">
+                    <i class="bi bi-shop text-success fs-5"></i>
+                    <div>
+                        <strong>Multi-magasins</strong>
+                        <p class="small text-muted mb-0">
+                            Sélecteur en haut à droite pour basculer entre les points de vente (chef d'équipe et au-dessus).
+                        </p>
                     </div>
                 </div>
-                <div class="col-md-4">
-                    <div class="d-flex gap-2">
-                        <i class="bi bi-shop text-success"></i>
-                        <div>
-                            <strong>Multi-magasins</strong>
-                            <p class="small text-muted mb-0">Le chef équipe change son magasin de suivi via le sélecteur de la topbar ; chaque utilisateur travaille sur son magasin d'affectation.</p>
-                        </div>
+            </div>
+            <div class="col-md-4">
+                <div class="d-flex gap-2">
+                    <i class="bi bi-cloud-arrow-down text-warning fs-5"></i>
+                    <div>
+                        <strong>Hors-ligne</strong>
+                        <p class="small text-muted mb-0">
+                            La caisse fonctionne sans réseau : les ventes sont mises en file d'attente et synchronisées à la reconnexion.
+                        </p>
                     </div>
                 </div>
-                <div class="col-md-4">
-                    <div class="d-flex gap-2">
-                        <i class="bi bi-cloud-arrow-down text-warning"></i>
-                        <div>
-                            <strong>Hors-ligne</strong>
-                            <p class="small text-muted mb-0">La caisse fonctionne sans réseau : les ventes sont mises en file d'attente et synchronisées automatiquement à la reconnexion.</p>
-                        </div>
+            </div>
+            <div class="col-md-4">
+                <div class="d-flex gap-2">
+                    <i class="bi bi-shield-check text-danger fs-5"></i>
+                    <div>
+                        <strong>Traçabilité</strong>
+                        <p class="small text-muted mb-0">
+                            Chaque action sensible est journalisée dans le Journal d'activité.
+                        </p>
                     </div>
                 </div>
-                <div class="col-md-4">
-                    <div class="d-flex gap-2">
-                        <i class="bi bi-shield-check text-danger"></i>
-                        <div>
-                            <strong>Tout est tracé</strong>
-                            <p class="small text-muted mb-0">Chaque action sensible est journalisée dans le Journal d'activité (consultable par le chef équipe).</p>
-                        </div>
+            </div>
+            <div class="col-md-4">
+                <div class="d-flex gap-2">
+                    <i class="bi bi-tag text-info fs-5"></i>
+                    <div>
+                        <strong>FEFO (DLC)</strong>
+                        <p class="small text-muted mb-0">
+                            Les articles périssables partent en priorité "premier expiré, premier sorti".
+                        </p>
                     </div>
                 </div>
-                <div class="col-md-4">
-                    <div class="d-flex gap-2">
-                        <i class="bi bi-tag text-info"></i>
-                        <div>
-                            <strong>FEFO (DLC)</strong>
-                            <p class="small text-muted mb-0">Les articles périssables partent en priorité "premier expiré, premier sorti" : écoulez les lots urgents avant les nouveaux.</p>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="d-flex gap-2">
-                        <i class="bi bi-lock text-secondary"></i>
-                        <div>
-                            <strong>Windows de clôture</strong>
-                            <p class="small text-muted mb-0">Une clôture de caisse verrouille la journée : plus aucune annulation de facture ensuite.</p>
-                        </div>
+            </div>
+            <div class="col-md-4">
+                <div class="d-flex gap-2">
+                    <i class="bi bi-lock text-secondary fs-5"></i>
+                    <div>
+                        <strong>Clôture</strong>
+                        <p class="small text-muted mb-0">
+                            Une clôture de caisse verrouille la journée : plus aucune annulation de facture.
+                        </p>
                     </div>
                 </div>
             </div>
         </div>
     </div>
+</div>
+
+{# ── Section : Concepts clés ── #}
+<div class="card border-0 mt-4">
+    <div class="card-body">
+        <h2 class="h6 text-uppercase text-muted mb-3"><i class="bi bi-lightbulb me-1"></i> Concepts clés</h2>
+        <div class="row g-3">
+            <div class="col-md-4">
+                <div class="card border h-100">
+                    <div class="card-body">
+                        <h3 class="h6"><i class="bi bi-shield-lock text-primary me-1"></i> RBAC dynamique</h3>
+                        <p class="small text-muted mb-0">
+                            Les rôles sont définis en base par leurs permissions, pas par du code PHP.
+                            Un même utilisateur peut cumuler plusieurs rôles. La matrice des permissions
+                            est gérée via <strong>Paramètres → Rôles & Permissions</strong>.
+                        </p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card border h-100">
+                    <div class="card-body">
+                        <h3 class="h6"><i class="bi bi-people text-success me-1"></i> Rôle ≠ Équipe ≠ Périmètre</h3>
+                        <p class="small text-muted mb-0">
+                            Le <strong>rôle</strong> définit ce que l'utilisateur peut faire.
+                            L'<strong>équipe</strong> définit dans quelle organisation il travaille.
+                            Le <strong>périmètre</strong> (magasin) définit sur quelles ressources il peut agir.
+                        </p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card border h-100">
+                    <div class="card-body">
+                        <h3 class="h6"><i class="bi bi-calculator text-warning me-1"></i> CUMP</h3>
+                        <p class="small text-muted mb-0">
+                            <strong>Coût Unitaire Moyen Pondéré</strong> : le coût de revient des articles est
+                            recalculé à chaque réception fournisseur. C'est le CUMP qui est utilisé pour le
+                            calcul de la marge et du coût de production.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts_extra %}
     <script nonce="{{ csp_nonce_val }}">
-        document.addEventListener('DOMContentLoaded', function () {
-            document.querySelectorAll('.nav-tabs button[data-bs-toggle="tab"]').forEach(function (btn) {
-                btn.addEventListener('click', function () {
-                    localStorage.setItem('eStock_doc_tab', btn.getAttribute('data-bs-target'));
+    document.addEventListener('DOMContentLoaded', function () {
+        /* ── Recherche ── */
+        var searchInput = document.getElementById('docSearch');
+        var searchClear = document.getElementById('docSearchClear');
+        var searchResults = document.getElementById('docSearchResults');
+        var allCards = document.querySelectorAll('.doc-module-card');
+        var tabButtons = document.querySelectorAll('#docTabs .nav-link');
+
+        if (searchInput) {
+            searchInput.addEventListener('input', function () {
+                var q = this.value.trim().toLowerCase();
+                if (q.length < 2) {
+                    // Reset
+                    allCards.forEach(function (c) { c.style.display = ''; });
+                    document.querySelectorAll('.tab-pane').forEach(function (t) {
+                        t.classList.remove('force-show');
+                    });
+                    searchClear.classList.add('d-none');
+                    searchResults.classList.add('d-none');
+                    return;
+                }
+                searchClear.classList.remove('d-none');
+                var count = 0;
+                allCards.forEach(function (card) {
+                    var text = card.getAttribute('data-search') || '';
+                    var match = text.indexOf(q) !== -1;
+                    card.style.display = match ? '' : 'none';
+                    if (match) count++;
                 });
+                // Show all tabs when searching
+                document.querySelectorAll('.tab-pane').forEach(function (t) {
+                    t.classList.add('show', 'active', 'force-show');
+                });
+                searchResults.textContent = count + ' résultat' + (count !== 1 ? 's' : '') + ' trouvé' + (count !== 1 ? 's' : '');
+                searchResults.classList.remove('d-none');
             });
-            var saved = localStorage.getItem('eStock_doc_tab');
-            if (saved && /^#[a-zA-Z0-9_-]+$/.test(saved)) {
-                var btn = document.querySelector('.nav-tabs button[data-bs-target="' + saved + '"]');
-                if (btn) { bootstrap.Tab.getOrCreateInstance(btn).show(); }
-            }
+
+            searchClear.addEventListener('click', function () {
+                searchInput.value = '';
+                searchInput.dispatchEvent(new Event('input'));
+            });
+        }
+
+        /* ── Persist tab selection ── */
+        tabButtons.forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                localStorage.setItem('eStock_doc_tab', btn.getAttribute('data-bs-target'));
+            });
         });
+        var saved = localStorage.getItem('eStock_doc_tab');
+        if (saved && /^#[a-zA-Z0-9_-]+$/.test(saved)) {
+            var btn = document.querySelector('#docTabs button[data-bs-target="' + saved + '"]');
+            if (btn) { bootstrap.Tab.getOrCreateInstance(btn).show(); }
+        }
+    });
     </script>
 {% endblock %}

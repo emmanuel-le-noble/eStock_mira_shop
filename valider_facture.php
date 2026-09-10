@@ -267,7 +267,7 @@ try {
 
         // Mouvement de stock pour traçabilité historique
         $motif_vente = 'Vente facture ' . $numero . $lots_info;
-        db_mouvement_insert($pdo, $l['article_id'], user_courant()['id'] ?? null, 'Vente', $l['quantite'], $motif_vente, $magasin_id);
+        db_mouvement_insert($pdo, $l['article_id'], user_courant()['id'] ?? null, 'VENTE', $l['quantite'], $motif_vente, $magasin_id);
     }
 
     // ---- 6) Enregistrer les paiements multi-modes ----

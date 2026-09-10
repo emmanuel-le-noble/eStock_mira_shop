@@ -8,6 +8,7 @@ $titre_page = 'Stock usine';
 
 // POST: transfert usine → magasin
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    exiger_permission('transfert_usine_gerer');
     csrf_guard('stock_usine.php');
     $article_id = (int)($_POST['article_id'] ?? 0);
     $destination = (int)($_POST['magasin_destination_id'] ?? 0);
@@ -88,7 +89,7 @@ include __DIR__ . '/includes/header.php';
                         <td><?= h($s['unite_mesure']) ?></td>
                         <td class="text-end fw-bold"><?= number_format((float)$s['quantite']) ?></td>
                         <td class="text-end">
-                            <?php if ((float)$s['quantite'] > 0 && !empty($magasins) && peut('transferts_gerer')): ?>
+                            <?php if ((float)$s['quantite'] > 0 && !empty($magasins) && peut('transfert_usine_gerer')): ?>
                                 <button class="btn btn-sm btn-outline-success btn-transferer"
                                         data-article-id="<?= $s['id'] ?>"
                                         data-article-nom="<?= h($s['nom']) ?>"
@@ -103,7 +104,6 @@ include __DIR__ . '/includes/header.php';
                     <tr><td colspan="6" class="text-center py-3 text-muted">Aucun produit fini en usine.</td></tr>
                 <?php endif; ?>
             </tbody>
-        </table>
         </table>
     </div>
 </div>
@@ -145,7 +145,7 @@ include __DIR__ . '/includes/header.php';
     </div>
 </div>
 
-<script nonce="<?= csp_nonce_val() ?>">
+<script nonce="<?= csp_nonce() ?>">
 document.addEventListener('DOMContentLoaded', function() {
     document.querySelectorAll('.btn-transferer').forEach(btn => {
         btn.addEventListener('click', function() {

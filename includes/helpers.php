@@ -74,7 +74,7 @@ function extract_post_data(array $schema, string $global_redirect = ''): array {
             default:
                 $val = (string)($raw ?? $default ?? '');
                 if (!empty($def['trim']) && $raw !== null) {
-                    $val = trim($raw);
+                    $val = trim((string)$raw);
                 }
                 if (!empty($def['nullable']) && $val === '') {
                     $val = null;
@@ -98,13 +98,14 @@ function extract_post_data(array $schema, string $global_redirect = ''): array {
     // Validation required : tous les champs requis doivent être non vides
     foreach ($schema as $cle => $def) {
         if (!empty($def['required'])) {
+            $raw_post = $_POST[$cle] ?? null;
             $val = $data[$cle] ?? null;
-            $champ_vide = ($val === null || $val === '');
+            // Vérifier la valeur brute POST d'abord (avant application du default)
+            $champ_vide = ($raw_post === null || $raw_post === '');
             // Pour les champs numériques requis : un champ absent ou non numérique
             // (qui donnerait 0 silencieusement) doit être considéré comme vide.
             if (!$champ_vide && in_array($def['type'] ?? 'string', ['int', 'float'], true)) {
-                $raw = $_POST[$cle] ?? null;
-                if ($raw === null || $raw === '' || !is_scalar($raw) || !is_numeric($raw)) {
+                if (!is_scalar($raw_post) || !is_numeric($raw_post)) {
                     $champ_vide = true;
                 }
             }
@@ -230,18 +231,18 @@ function process_stock_movement(PDO $pdo, int $article_id, string $type, int $qu
     }
     
     // 2. Vérification du stock : uniquement pour les sorties réelles
-    $est_sortie = in_array($type, ['Sortie', 'Vente', 'Transfert'], true);
+    $est_sortie = in_array($type, ['SORTIE', 'VENTE', 'TRANSFERT'], true);
     if ($est_sortie && $quantite > (int)$art['quantite_stock']) {
         throw new RuntimeException('Stock insuffisant pour cette sortie (' . (int)$art['quantite_stock'] . ' dispo).');
     }
     
     // 3. ENTRÉE ou RETOUR_STOCK : On crée un lot UNIQUEMENT si l'utilisateur a fourni un numéro de lot (article périssable)
-    if (in_array($type, ['Entree', 'Retour_stock'], true) && !empty($numero_lot) && $magasin_id > 0) {
+    if (in_array($type, ['ENTREE', 'RETOUR_STOCK'], true) && !empty($numero_lot) && $magasin_id > 0) {
         db_lot_upsert($pdo, $article_id, $magasin_id, $numero_lot, $quantite, $date_peremption);
     }
     
     // 4. SORTIE, VENTE ou TRANSFERT : Gestion hybride (Périssable VS Non Périssable)
-    if (in_array($type, ['Sortie', 'Vente', 'Transfert'], true) && $magasin_id > 0) {
+    if (in_array($type, ['SORTIE', 'VENTE', 'TRANSFERT'], true) && $magasin_id > 0) {
         // On récupère les lots existants pour cet article
         $lots_dispo = db_lots_by_article($pdo, $article_id, $magasin_id);
         $total_lots = !empty($lots_dispo) ? array_sum(array_column($lots_dispo, 'quantite')) : 0;
@@ -261,7 +262,7 @@ function process_stock_movement(PDO $pdo, int $article_id, string $type, int $qu
     // pondéré AVANT la mise à jour des quantités (la formule utilise le stock
     // d'avant-entrée). Les sorties/ventes consomment les couches FIFO
     // (valorisées au CUMP dans les statistiques).
-    if (in_array($type, ['Entree', 'Retour_stock'], true) && $quantite > 0) {
+    if (in_array($type, ['ENTREE', 'RETOUR_STOCK'], true) && $quantite > 0) {
         $cout = ($cout_unitaire !== null && $cout_unitaire >= 0)
             ? $cout_unitaire
             : (float)($art['prix_achat'] ?? 0);
@@ -274,7 +275,7 @@ function process_stock_movement(PDO $pdo, int $article_id, string $type, int $qu
 
     // 5bis. Mise à jour du stock par magasin (liaison classique du projet)
     // Entrées et retours augmentent le stock ; sorties, ventes et transferts le diminuent.
-    $delta = in_array($type, ['Entree', 'Retour_stock'], true) ? $quantite : -$quantite;
+    $delta = in_array($type, ['ENTREE', 'RETOUR_STOCK'], true) ? $quantite : -$quantite;
     db_article_update_stock($pdo, $article_id, $delta, $magasin_id);
 
     // 6. Enregistrement systématique dans l'historique des mouvements
@@ -338,14 +339,14 @@ function is_stock_low(int $quantite_stock, int $seuil_alerte): bool {
  * Retourner la couleur Bootstrap pour un type de mouvement.
  */
 function movement_type_color(string $type): string {
-    return ['Entree' => 'success', 'Sortie' => 'warning', 'Vente' => 'info', 'Transfert' => 'info', 'Ajustement' => 'warning', 'Retour_stock' => 'success'][$type] ?? 'secondary';
+    return ['ENTREE' => 'success', 'SORTIE' => 'warning', 'VENTE' => 'info', 'TRANSFERT' => 'info', 'AJUSTEMENT' => 'warning', 'RETOUR_STOCK' => 'success'][$type] ?? 'secondary';
 }
 
 /**
  * Retourner le signe (+ ou -) pour un type de mouvement.
  */
 function movement_type_sign(string $type): string {
-    return ['Entree' => '+', 'Sortie' => '-', 'Vente' => '-', 'Transfert' => '-', 'Ajustement' => '±', 'Retour_stock' => '+'][$type] ?? '';
+    return ['ENTREE' => '+', 'SORTIE' => '-', 'VENTE' => '-', 'TRANSFERT' => '-', 'AJUSTEMENT' => '±', 'RETOUR_STOCK' => '+'][$type] ?? '';
 }
 
 /**
@@ -406,7 +407,8 @@ function page_url(string $page, array $params = []): string {
 // ============================================================
 
 function generate_signed_url(string $base_url, int $id, array $extra = []): string {
-    $payload = (string)$id;
+    $payload = parse_url($base_url, PHP_URL_PATH) ?: $base_url;
+    $payload .= '|' . (string)$id;
     ksort($extra);
     foreach ($extra as $k => $v) { $payload .= '|' . $k . '=' . $v; }
     // Inclure le timestamp dans le payload pour expiration (24h)
@@ -423,11 +425,14 @@ function url_sign(string $base_url, int $id, array $extra = []): string {
     return generate_signed_url($base_url, $id, $extra);
 }
 
-function verify_url_signature(int $id, string $token, array $extra = [], ?int $ts = null): bool {
+function verify_url_signature(int $id, string $token, array $extra = [], ?int $ts = null, ?string $base_url = null): bool {
     if ($token === '' || $id <= 0) return false;
     $ts = $ts ?? (int)($_GET['ts'] ?? 0);
     if ($ts <= 0 || (time() - $ts) > 86400) return false; // Expiration 24h
-    $payload = (string)$id;
+    // Reconstituer le payload avec le chemin de l'URL courante
+    $current_path = $base_url ? (parse_url($base_url, PHP_URL_PATH) ?: $base_url) : (parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?: '');
+    $payload = $current_path;
+    $payload .= '|' . (string)$id;
     ksort($extra);
     foreach ($extra as $k => $v) { $payload .= '|' . $k . '=' . $v; }
     $payload .= '|ts=' . $ts;
@@ -525,18 +530,43 @@ function db_inventory_ref_exists(PDO $pdo, string $ref): bool {
 }
 
 function role_badge_color(string $role): string {
-    return [ROLE_DIRECTEUR=>'dark', ROLE_ADMIN=>'primary', ROLE_MAGASINIER=>'warning', ROLE_VENDEUR=>'info'][$role] ?? 'secondary';
+    return ROLE_COULEURS[$role] ?? 'secondary';
 }
 
 function user_can_edit_user(PDO $pdo, int $target_id): bool {
     $current = user_courant();
     if ((int)$current['id'] === $target_id) return true;
-    $hierarchy = ['VENDEUR'=>1, 'MAGASINIER'=>2, 'ADMIN'=>3, 'PROPRIETAIRE'=>4, 'CHEF_EQUIPE'=>4];
     $target = db_user_get_by_id($pdo, $target_id);
     if (!$target) return false;
-    $current_level = $hierarchy[$current['role']] ?? 0;
-    $target_level = $hierarchy[$target['role']] ?? 0;
-    return $current_level > $target_level;
+
+    // Utiliser la hiérarchie dynamique basée sur user_roles
+    $currentRoles = user_roles();
+    $currentLevel = 0;
+    foreach ($currentRoles as $r) {
+        $level = ROLE_HIERARCHIE[$r] ?? 0;
+        if ($level > $currentLevel) $currentLevel = $level;
+    }
+
+    // Récupérer les rôles de la cible depuis user_roles
+    $targetLevel = 0;
+    try {
+        $stmt = $pdo->prepare(
+            'SELECT r.code FROM user_roles ur
+             JOIN roles r ON r.id = ur.role_id AND r.actif = 1
+             WHERE ur.user_id = :uid'
+        );
+        $stmt->execute([':uid' => $target_id]);
+        $targetRoles = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        foreach ($targetRoles as $r) {
+            $level = ROLE_HIERARCHIE[$r] ?? 0;
+            if ($level > $targetLevel) $targetLevel = $level;
+        }
+    } catch (Throwable $e) {
+        // Fallback : utiliser la colonne role de la session (alias RBAC)
+        $targetLevel = ROLE_HIERARCHIE[$target['role']] ?? 0;
+    }
+
+    return $currentLevel > $targetLevel;
 }
 
 function build_filter_params(array $filters): array {

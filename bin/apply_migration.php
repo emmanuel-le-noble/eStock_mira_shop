@@ -174,24 +174,7 @@ run($pdo, 'stock_matieres_premieres', "CREATE TABLE IF NOT EXISTS `stock_matiere
   CONSTRAINT `fk_smp_matiere` FOREIGN KEY (`matiere_id`) REFERENCES `matieres_premieres`(`id`) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
-run($pdo, 'mouvements_matieres_premieres', "CREATE TABLE IF NOT EXISTS `mouvements_matieres_premieres` (
-  `id` int NOT NULL AUTO_INCREMENT,
-  `matiere_id` int NOT NULL,
-  `utilisateur_id` int DEFAULT NULL,
-  `type` enum('ENTREE_ACHAT','ENTREE_RETOUR','ENTREE_RECEPTION','SORTIE_PRODUCTION','SORTIE_PERTE','AJUSTEMENT_ENTREE','AJUSTEMENT_SORTIE') NOT NULL,
-  `quantite` decimal(12,4) NOT NULL,
-  `cout_unitaire` decimal(14,4) NOT NULL DEFAULT 0,
-  `cout_total` decimal(14,2) NOT NULL DEFAULT 0,
-  `production_id` int DEFAULT NULL,
-  `reception_id` int DEFAULT NULL,
-  `motif` varchar(255) DEFAULT NULL,
-  `date_mouvement` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  KEY `idx_mmp_matiere` (`matiere_id`),
-  KEY `idx_mmp_type` (`type`),
-  KEY `idx_mmp_date` (`date_mouvement`),
-  CONSTRAINT `fk_mmp_matiere` FOREIGN KEY (`matiere_id`) REFERENCES `matieres_premieres`(`id`) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+// NOTE: mouvements_matieres_premieres supprimé — les mouvements sont dans stock_matieres_premieres
 
 run($pdo, 'stock_produits_finis_usine', "CREATE TABLE IF NOT EXISTS `stock_produits_finis_usine` (
   `id` int NOT NULL AUTO_INCREMENT,
@@ -204,22 +187,7 @@ run($pdo, 'stock_produits_finis_usine', "CREATE TABLE IF NOT EXISTS `stock_produ
   CONSTRAINT `fk_spfu_article` FOREIGN KEY (`article_id`) REFERENCES `articles`(`id`) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
-run($pdo, 'mouvements_produits_finis', "CREATE TABLE IF NOT EXISTS `mouvements_produits_finis` (
-  `id` int NOT NULL AUTO_INCREMENT,
-  `article_id` int NOT NULL,
-  `utilisateur_id` int DEFAULT NULL,
-  `type` enum('PRODUCTION','TRANSFERT_SORTIE','RETOUR','AJUSTEMENT_ENTREE','AJUSTEMENT_SORTIE') NOT NULL,
-  `quantite` int NOT NULL,
-  `production_id` int DEFAULT NULL,
-  `magasin_destination_id` int DEFAULT NULL,
-  `motif` varchar(255) DEFAULT NULL,
-  `date_mouvement` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  KEY `idx_mpf_article` (`article_id`),
-  KEY `idx_mpf_type` (`type`),
-  KEY `idx_mpf_date` (`date_mouvement`),
-  CONSTRAINT `fk_mpf_article` FOREIGN KEY (`article_id`) REFERENCES `articles`(`id`) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+// NOTE: mouvements_produits_finis supprimé — les mouvements sont dans mouvements_stock (type 'PRODUCTION'/'PERTE_PRODUCTION')
 
 // Add origine_article column
 $cols = $pdo->query("SHOW COLUMNS FROM articles LIKE 'origine_article'")->fetchAll();
@@ -302,12 +270,12 @@ try {
 echo "\n=== PARTIE C: ROLE_ID DANS UTILISATEURS ===\n";
 
 run($pdo, 'utilisateurs add role_id', "ALTER TABLE `utilisateurs` ADD COLUMN `role_id` INT NULL AFTER `mot_de_passe`");
-run($pdo, 'utilisateurs role_id chef', "UPDATE `utilisateurs` SET `role_id` = (SELECT `id` FROM `roles` WHERE `code` = 'CHEF_EQUIPE') WHERE `role` = 'chef équipe'");
+run($pdo, 'utilisateurs role_id chef', "UPDATE `utilisateurs` SET `role_id` = (SELECT `id` FROM `roles` WHERE `code` = 'PROPRIETAIRE') WHERE `role` = 'chef équipe'");
 run($pdo, 'utilisateurs role_id admin', "UPDATE `utilisateurs` SET `role_id` = (SELECT `id` FROM `roles` WHERE `code` = 'ADMIN') WHERE `role` = 'Admin'");
 run($pdo, 'utilisateurs role_id mag', "UPDATE `utilisateurs` SET `role_id` = (SELECT `id` FROM `roles` WHERE `code` = 'MAGASINIER') WHERE `role` = 'Magasinier'");
 run($pdo, 'utilisateurs role_id ven', "UPDATE `utilisateurs` SET `role_id` = (SELECT `id` FROM `roles` WHERE `code` = 'VENDEUR') WHERE `role` = 'Vendeur'");
 run($pdo, 'utilisateurs role_id not null', "ALTER TABLE `utilisateurs` MODIFY COLUMN `role_id` INT NOT NULL");
-run($pdo, 'utilisateurs drop role', "ALTER TABLE `utilisateurs` DROP COLUMN `role`");
+// run($pdo, 'utilisateurs drop role', "ALTER TABLE `utilisateurs` DROP COLUMN `role`");
 run($pdo, 'utilisateurs fk_role', "ALTER TABLE `utilisateurs` ADD CONSTRAINT `fk_user_role_id` FOREIGN KEY (`role_id`) REFERENCES `roles`(`id`) ON UPDATE CASCADE ON DELETE RESTRICT");
 
 echo "\n=== RESULT: $ok OK, $fail FAIL ===\n";
