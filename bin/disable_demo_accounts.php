@@ -14,12 +14,13 @@ require_once __DIR__ . '/../config/connexion.php';
 
 try {
     // Ne jamais désactiver le dernier Directeur accessible.
-    $stmt = $pdo->query(
+    $stmt = $pdo->prepare(
         "SELECT COUNT(*) FROM utilisateurs u
          JOIN roles r ON r.id = u.role_id
-         WHERE u.actif = 1 AND r.code = '" . ROLE_DIRECTEUR . "'
+         WHERE u.actif = 1 AND r.code = ?
            AND u.login NOT IN ('admin', 'magasin', 'vendeur')"
     );
+    $stmt->execute([ROLE_DIRECTEUR]);
     if ((int)$stmt->fetchColumn() === 0) {
         fwrite(STDERR, "Créez d'abord un nouveau compte Directeur actif avec bin/create_admin.php.\n");
         exit(1);

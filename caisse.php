@@ -344,7 +344,7 @@ unset($_articles_pos);
     </div>
 </div>
 
-<style>
+<style nonce="<?= h(csp_nonce()) ?>">
 .btn-mode-vente { border: 1px solid #dee2e6; background: #f8f9fa; color: #495057; font-size: 0.78rem; padding: 4px 10px; }
 .btn-mode-vente.active { background: #0d6efd; color: #fff; border-color: #0d6efd; }
 .btn-mode-vente:hover:not(.active) { background: #e9ecef; }

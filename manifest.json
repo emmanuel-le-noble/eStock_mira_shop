@@ -2,7 +2,7 @@
     "name": "eStock — Gestion de Stock & Caisse",
     "short_name": "eStock",
     "description": "Application de gestion de stock et point de vente",
-    "start_url": "/eSotck/tableau_bord.php",
+    "start_url": "/eStock/tableau_bord.php",
     "display": "standalone",
     "background_color": "#ffffff",
     "theme_color": "#4f46e5",

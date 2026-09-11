@@ -329,10 +329,22 @@ function api_csrf_ok(): bool {
 }
 
 function handle_login(): void {
-    // SEC-11 : Vérifier que la requête vient d'une interface interne (pas cross-origin)
-    $isXHR = !empty($_SERVER['HTTP_X_REQUESTED_WITH']) && $_SERVER['HTTP_X_REQUESTED_WITH'] === 'XMLHttpRequest';
-    $isAPI = !empty($_SERVER['HTTP_ACCEPT']) && str_contains($_SERVER['HTTP_ACCEPT'], 'application/json');
-    if (!$isXHR && !$isAPI) {
+    // SEC-11 : Valider l'origine de la requête (Origin ou Referer)
+    $origin  = $_SERVER['HTTP_ORIGIN'] ?? '';
+    $referer = $_SERVER['HTTP_REFERER'] ?? '';
+    $host    = $_SERVER['HTTP_HOST'] ?? '';
+    $validOrigin = false;
+    foreach ([$origin, $referer] as $url) {
+        if ($url !== '' && preg_match('#^https?://'.preg_quote($host, '#').'#i', $url)) {
+            $validOrigin = true;
+            break;
+        }
+    }
+    // Autoriser aussi les requêtes same-origin sans Origin (formulaires classiques)
+    if (!$validOrigin && $origin === '' && $referer === '') {
+        $validOrigin = true; // fallback pour form POST natif
+    }
+    if (!$validOrigin) {
         json_out(['error' => 'Requête non autorisée.'], 403);
     }
 
@@ -347,7 +359,7 @@ function handle_login(): void {
     }
 
     if (login_rate_limited()) {
-        suivre_activite('ECHEC_CONNEXION_API', 'Rate limited depuis ' . ($_SERVER['REMOTE_ADDR'] ?? '127.0.0.1'));
+        suivre_activite('ECHEC_CONNEXION_API', 'Rate limited depuis ' . _get_client_ip());
         json_out(['success' => false, 'message' => 'Trop de tentatives. Réessayez dans 15 minutes.'], 429);
     }
 
@@ -355,9 +367,11 @@ function handle_login(): void {
     $u = db_user_get_by_login($pdo, $login);
 
     if ($u && password_verify($mdp, $u['mot_de_passe'])) {
-        db_login_attempt_clear($pdo, $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1', $login);
+        db_login_attempt_clear($pdo, _get_client_ip(), $login);
         session_regenerate_id(true);
         unset($u['mot_de_passe']);
+        // Filtrer les champs sensibles de la réponse
+        unset($u['google_id'], $u['google_email'], $u['totp_secret']);
         $_SESSION['user'] = $u;
         suivre_activite('CONNEXION_API', 'Connexion API réussie: ' . $login);
         json_out([
@@ -366,7 +380,7 @@ function handle_login(): void {
             'user'    => $u,
         ]);
     } else {
-        db_login_attempt_insert($pdo, $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1', $login);
+        db_login_attempt_insert($pdo, _get_client_ip(), $login);
         suivre_activite('ECHEC_CONNEXION_API', 'Tentative échouée: ' . $login);
         json_out(['success' => false, 'message' => 'Identifiant ou mot de passe incorrect.'], 401);
     }

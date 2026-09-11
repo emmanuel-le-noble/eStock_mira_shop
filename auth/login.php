@@ -69,7 +69,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <link href="../assets/css/style.css" rel="stylesheet">
     <link rel="icon" type="image/x-icon" href="../assets/images/logo-eStock.ico">
-    <style>
+    <style nonce="<?= h(csp_nonce()) ?>">
         .login-split { min-height: 100vh; display: grid; grid-template-columns: 1.1fr 1fr; }
         @media (max-width: 991.98px) { .login-split { grid-template-columns: 1fr; } .login-aside { display: none; } }
 

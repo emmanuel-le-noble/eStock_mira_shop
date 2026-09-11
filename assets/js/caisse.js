@@ -215,11 +215,11 @@ document.addEventListener('DOMContentLoaded', function () {
                             : s;
                     });
                     syncOK++;
-                    var ptsMsg = (data.points_gagnes || 0) > 0
-                        ? ' — <strong>+' + data.points_gagnes + ' pts</strong> fidélité'
+                    var ptsText = (data.points_gagnes || 0) > 0
+                        ? ' \u2014 +' + data.points_gagnes + ' pts fidélité'
                         : '';
                     alerter(
-                        'Vente synchronisée : ' + (data.numero || vente.client_sale_id.slice(0, 8)) + ptsMsg,
+                        'Vente synchronisée : ' + (data.numero || vente.client_sale_id.slice(0, 8)) + ptsText,
                         'success'
                     );
                 } else {
@@ -967,15 +967,16 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
 
                 // Colonne quantité : input éditable pour les unitaires, pesée affichée pour le poids
+                var articleId = parseInt(l.article.id, 10) || 0;
                 var qteHtml = estPoids
                     ? '<span class="badge text-bg-light border rounded-pill px-3 py-2">' + formaterPoids(l.qte, l.article) + '</span>'
                     : '<div class="input-group input-group-sm" style="width:120px">' +
-                      '<button type="button" class="btn btn-outline-secondary btn-decrease" data-id="' + l.article.id + '">−</button>' +
-                      '<input type="number" class="form-control text-center qty-input qty-badge" data-id="' + l.article.id + '" value="' + l.qte + '" min="1" max="' + l.article.stock_dispo + '" style="font-size:.85rem">' +
-                      '<button type="button" class="btn btn-outline-secondary btn-increase" data-id="' + l.article.id + '">+</button>' +
+                      '<button type="button" class="btn btn-outline-secondary btn-decrease" data-id="' + articleId + '">\u2212</button>' +
+                      '<input type="number" class="form-control text-center qty-input qty-badge" data-id="' + articleId + '" value="' + l.qte + '" min="1" max="' + l.article.stock_dispo + '" style="font-size:.85rem">' +
+                      '<button type="button" class="btn btn-outline-secondary btn-increase" data-id="' + articleId + '">+</button>' +
                       '</div>';
 
-                return '<tr data-id="' + l.article.id + '">' +
+                return '<tr data-id="' + articleId + '">' +
                     '<td>' +
                     '<div class="fw-semibold">' + escapeHtml(l.article.nom) + promoLabel + '</div>' +
                     '<small class="text-muted"><code>' + escapeHtml(l.article.code_barre) + '</code></small>' +
@@ -984,7 +985,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     '<td class="text-center">' + qteHtml + '</td>' +
                     '<td class="text-end fw-bold">' + formatMoney(sousTotal) + '</td>' +
                     '<td class="text-center">' +
-                    '<button type="button" class="btn btn-sm btn-outline-danger btn-delete" data-id="' + l.article.id + '" title="Retirer">' +
+                    '<button type="button" class="btn btn-sm btn-outline-danger btn-delete" data-id="' + articleId + '" title="Retirer">' +
                     '<i class="bi bi-trash"></i>' +
                     '</button>' +
                     '</td>' +

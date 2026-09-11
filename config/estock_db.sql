@@ -1,3 +1,12 @@
+-- ============================================================
+-- ⚠️  DÉPRÉCIÉ — NE PAS UTILISER POUR L'INSTALLATION
+-- ============================================================
+-- Ce fichier est conservé pour référence historique uniquement.
+-- La source canonique du schéma est : database/estock_db.sql
+-- Ce fichier est divergent (MariaDB 10.4 vs MySQL 8.0) et
+-- ne contient pas toutes les tables/contraintes du schéma actuel.
+-- ============================================================
+
 -- phpMyAdmin SQL Dump
 -- version 5.2.1
 -- https://www.phpmyadmin.net/

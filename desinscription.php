@@ -58,7 +58,7 @@ $token_valide = ($token !== '' && strlen($token) === 64);
     <title>Désinscription · <?= h($app_nom) ?></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <style>
+    <style nonce="<?= h(csp_nonce()) ?>">
         body { background: #f4f6fa; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
         .card-desinscription { max-width: 460px; width: 100%; border: 0; border-radius: 16px; box-shadow: 0 10px 40px rgba(30,41,59,.12); }
         .badge-opposition { position: absolute; top: 14px; right: 14px; }

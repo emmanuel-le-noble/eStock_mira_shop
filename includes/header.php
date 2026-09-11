@@ -8,9 +8,11 @@
  */
 
 // Empêcher le navigateur de mettre en cache les pages dynamiques
-header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
-header('Pragma: no-cache');
-header('Expires: 0');
+if (!headers_sent()) {
+    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+    header('Pragma: no-cache');
+    header('Expires: 0');
+}
 
 $titre_page  = $titre_page  ?? param_app_name();
 $sous_titre  = $sous_titre  ?? '';
@@ -65,7 +67,7 @@ $theme_vars = $theme_palettes[$theme_couleur] ?? $theme_palettes['indigo'];
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <link rel="icon" type="image/x-icon" href="<?= BASE_URL ?>assets/images/logo-eStock.ico">
     <link href="<?= BASE_URL ?>assets/css/style.css" rel="stylesheet">
-    <style>
+    <style nonce="<?= h(csp_nonce()) ?>">
         :root {
             --brand: <?= h($theme_vars[0]) ?>;
             --brand-2: <?= h($theme_vars[1]) ?>;

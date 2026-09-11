@@ -12,6 +12,7 @@ if (php_sapi_name() !== 'cli' && !headers_sent()) {
         header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
     }
     $nonce = csp_nonce();
-    // CSP : nonce pour scripts, unsafe-inline pour styles (nécessaire pour les pages PHP hors Twig)
-    header("Content-Security-Policy: default-src 'self'; img-src 'self' data:; connect-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src 'self' https://cdn.jsdelivr.net https://fonts.gstatic.com; script-src 'self' 'nonce-{$nonce}' https://cdn.jsdelivr.net;");
+    // CSP : nonce pour scripts (pas de unsafe-inline pour script-src),
+    //       unsafe-inline pour styles (les attributs style="" ne supportent pas les nonces)
+    header("Content-Security-Policy: default-src 'self'; img-src 'self' data:; connect-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src 'self' https://cdn.jsdelivr.net https://fonts.gstatic.com; script-src 'self' 'nonce-{$nonce}' https://cdn.jsdelivr.net; object-src 'none';");
 }

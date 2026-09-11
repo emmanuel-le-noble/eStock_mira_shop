@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ticket {{ facture.numero_facture }}</title>
     <link rel="icon" type="image/x-icon" href="{{ base_url|trim('/', 'right') }}/assets/images/logo-eStock.ico">
-    <style>
+    <style nonce="{{ csp_nonce_val }}">
         :root {
             --doc-red: #D52B1E;
             --doc-green: #8DC63F;

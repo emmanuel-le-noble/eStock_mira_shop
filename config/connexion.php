@@ -743,14 +743,11 @@ require_once __DIR__ . '/../includes/db_functions.php';
 require_once __DIR__ . '/../includes/usine_functions.php';
 
 function _get_client_ip(): string {
-    // Respecter le proxy si configuré
-    if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
-        $ips = explode(',', $_SERVER['HTTP_X_FORWARDED_FOR']);
-        return trim($ips[0]);
+    // Utiliser la fonction proxy-aware de helpers.php si disponible
+    if (function_exists('obtenir_adresse_ip_client')) {
+        return obtenir_adresse_ip_client();
     }
-    if (!empty($_SERVER['HTTP_X_REAL_IP'])) {
-        return $_SERVER['HTTP_X_REAL_IP'];
-    }
+    // Fallback : REMOTE_ADDR uniquement
     return $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
 }
 
@@ -862,7 +859,6 @@ function pagination_links(int $page, int $total_pages, string $base_url = '?'): 
     echo '</ul></nav>';
 }
 
-require_once __DIR__ . '/../includes/db_functions.php';
 require_once __DIR__ . '/../includes/helpers.php';
 
 // ============================================================

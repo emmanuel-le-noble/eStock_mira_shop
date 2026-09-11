@@ -430,7 +430,8 @@ function verify_url_signature(int $id, string $token, array $extra = [], ?int $t
     $ts = $ts ?? (int)($_GET['ts'] ?? 0);
     if ($ts <= 0 || (time() - $ts) > 86400) return false; // Expiration 24h
     // Reconstituer le payload avec le chemin de l'URL courante
-    $current_path = $base_url ? (parse_url($base_url, PHP_URL_PATH) ?: $base_url) : (parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?: '');
+    $raw_path = $base_url ? (parse_url($base_url, PHP_URL_PATH) ?: $base_url) : (parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?: '');
+    $current_path = basename($raw_path);
     $payload = $current_path;
     $payload .= '|' . (string)$id;
     ksort($extra);

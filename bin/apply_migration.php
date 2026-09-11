@@ -2,16 +2,32 @@
 /**
  * Script d'application de la migration RBAC + Usine indépendante.
  * Exécuter : php bin/apply_migration.php
+ * Options   : php bin/apply_migration.php --dry-run   (affiche sans modifier)
  */
-$pdo = new PDO('mysql:host=127.0.0.1;dbname=estock_db', 'root', '', [
-    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-]);
+if (PHP_SAPI !== 'cli') {
+    http_response_code(403);
+    echo "Ce script doit être exécuté en ligne de commande.\n";
+    exit(1);
+}
+
+require_once __DIR__ . '/../config/connexion.php';
+
+$DRY_RUN = in_array('--dry-run', $argv ?? [], true);
+if ($DRY_RUN) {
+    echo "=== MODE DRY-RUN — Aucune modification ne sera appliquée ===\n\n";
+}
 
 $ok = 0;
 $fail = 0;
+$dry = 0;
 
 function run($pdo, $label, $sql) {
-    global $ok, $fail;
+    global $ok, $fail, $dry, $DRY_RUN;
+    if ($DRY_RUN) {
+        echo "  DRY  $label\n";
+        $dry++;
+        return;
+    }
     try {
         $pdo->exec($sql);
         echo "  OK  $label\n";
@@ -256,10 +272,32 @@ try {
             echo "    Migrated PF: article #{$pf['article_id']} (stock: {$pf['quantite']})\n";
         }
 
-        // Clean up old USINE data
-        $pdo->prepare("DELETE FROM stock_magasins WHERE magasin_id = ?")->execute([$usine_id]);
-        $pdo->prepare("DELETE FROM magasins WHERE id = ?")->execute([$usine_id]);
-        echo "  Cleaned up old USINE magasin\n";
+        // Create matching usines record for each USINE magasin
+        $usines_check = $pdo->query("SHOW TABLES LIKE 'usines'")->fetchAll();
+        if (!empty($usines_check)) {
+            $old_usines = $pdo->query("SELECT id, nom FROM magasins WHERE type_magasin = 'USINE'")->fetchAll();
+            foreach ($old_usines as $old_u) {
+                $existing = $pdo->prepare("SELECT id FROM usines WHERE nom = ?");
+                $existing->execute([$old_u['nom']]);
+                if (!$existing->fetch()) {
+                    if (!$DRY_RUN) {
+                        $pdo->prepare("INSERT INTO usines (nom, actif) VALUES (?, 1)")->execute([$old_u['nom']]);
+                        $new_usine_id = $pdo->lastInsertId();
+                        echo "    Created usine '{$old_u['nom']}' (id=$new_usine_id) from magasin #{$old_u['id']}\n";
+                    } else {
+                        echo "    DRY: Would create usine '{$old_u['nom']}' from magasin #{$old_u['id']}\n";
+                    }
+                }
+            }
+        }
+
+        // Deprecate old USINE magasins instead of deleting them
+        if (!$DRY_RUN) {
+            $pdo->prepare("UPDATE magasins SET actif = 0 WHERE type_magasin = 'USINE'")->execute();
+            echo "  Deprecated USINE magasins (set actif=0, data preserved)\n";
+        } else {
+            echo "  DRY: Would deprecate USINE magasins (set actif=0)\n";
+        }
     } else {
         echo "  No USINE magasin found, skipping data migration\n";
     }
@@ -278,5 +316,9 @@ run($pdo, 'utilisateurs role_id not null', "ALTER TABLE `utilisateurs` MODIFY CO
 // run($pdo, 'utilisateurs drop role', "ALTER TABLE `utilisateurs` DROP COLUMN `role`");
 run($pdo, 'utilisateurs fk_role', "ALTER TABLE `utilisateurs` ADD CONSTRAINT `fk_user_role_id` FOREIGN KEY (`role_id`) REFERENCES `roles`(`id`) ON UPDATE CASCADE ON DELETE RESTRICT");
 
-echo "\n=== RESULT: $ok OK, $fail FAIL ===\n";
+if ($DRY_RUN) {
+    echo "\n=== DRY-RUN: $dry opérations simulées, 0 appliquées ===\n";
+} else {
+    echo "\n=== RESULT: $ok OK, $fail FAIL ===\n";
+}
 exit($fail > 0 ? 1 : 0);

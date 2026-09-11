@@ -110,6 +110,7 @@ if ($action === 'nouveau' || $action === 'editer') {
 }
 
 // ---- Liste ----
+if ($action === 'liste' || $action === '') {
 $fournisseurs = db_fournisseurs_list_with_count($pdo);
 
 $titre_page = 'Fournisseurs';
@@ -158,8 +159,11 @@ include __DIR__ . '/includes/header.php';
         </div>
     </div>
 </div>
-<?php include __DIR__ . '/includes/footer.php'; ?>
 <?php
+include __DIR__ . '/includes/footer.php';
+exit;
+} // endif liste
+
 // ---- VUE HISTORIQUE PRIX ----
 if ($action === 'prix_historique') {
     exiger_permission('prix_fournisseur_consulter');
@@ -195,16 +199,16 @@ if ($action === 'prix_historique') {
                     <tbody>
                     <?php if (empty($historique)): ?>
                         <tr><td colspan="7" class="text-center text-muted py-4">Aucun historique de prix.</td></tr>
-                    <?php else: foreach ($historique as $h): ?>
-                        <tr class="<?= $h['est_actif'] ? 'table-success' : '' ?>">
-                            <td><?= h($h['date_debut']) ?></td>
-                            <td class="fw-semibold"><?= h($h['article_nom']) ?></td>
-                            <td><code><?= h($h['code_barre']) ?></code></td>
-                            <td class="text-end"><?= money($h['prix_achat']) ?></td>
-                            <td><span class="badge bg-secondary"><?= h($h['source']) ?></span></td>
-                            <td><?= h($h['utilisateur_nom'] ?? '—') ?></td>
+                    <?php else: foreach ($historique as $hr): ?>
+                        <tr class="<?= $hr['est_actif'] ? 'table-success' : '' ?>">
+                            <td><?= h($hr['date_debut']) ?></td>
+                            <td class="fw-semibold"><?= h($hr['article_nom']) ?></td>
+                            <td><code><?= h($hr['code_barre']) ?></code></td>
+                            <td class="text-end"><?= money($hr['prix_achat']) ?></td>
+                            <td><span class="badge bg-secondary"><?= h($hr['source']) ?></span></td>
+                            <td><?= h($hr['utilisateur_nom'] ?? '—') ?></td>
                             <td class="text-center">
-                                <?= $h['est_actif'] ? '<span class="badge bg-success">Actif</span>' : '<span class="badge bg-light text-dark">Ancien</span>' ?>
+                                <?= $hr['est_actif'] ? '<span class="badge bg-success">Actif</span>' : '<span class="badge bg-light text-dark">Ancien</span>' ?>
                             </td>
                         </tr>
                     <?php endforeach; endif; ?>
@@ -217,3 +221,4 @@ if ($action === 'prix_historique') {
     include __DIR__ . '/includes/footer.php';
     exit;
 }
+include __DIR__ . '/includes/footer.php';
