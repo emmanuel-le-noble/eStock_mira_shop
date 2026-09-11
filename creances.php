@@ -106,12 +106,7 @@ try {
 $totalPages = max(1, (int)ceil($total / 50));
 $currentPage = max(1, (int)($_GET['page'] ?? 1));
 
-try {
-    $rapport = db_credit_rapport($pdo);
-} catch (\Throwable $e) {
-    $rapport = [];
-    error_log('[CREANCES] rapport error: ' . $e->getMessage());
-}
+$rapport = db_credit_rapport($pdo);
 
 echo $twig->render('creances.html.twig', [
     'titre_page'   => 'Creances — Ventes a credit',
