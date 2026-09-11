@@ -356,7 +356,7 @@ final class UsineProductionTest extends PHPUnit\Framework\TestCase
         )->execute([$pf_id, 300, 300]);
 
         // Créer un magasin de destination
-        $mag_dest = db_magasin_insert(self::$pdo, 'Magasin Test Transfert', null);
+        $mag_dest = db_magasin_insert(self::$pdo, 'Magasin Test Transfert', null, null);
 
         // Transfert 200 unités
         db_transfert_usine_vers_magasin(self::$pdo, $pf_id, $mag_dest, 200, 'Transfert test');

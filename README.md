@@ -1,6 +1,6 @@
 # eStock — Gestion de Stock, Point de Vente & Usine de Production
 
-**Version :** 2.5.0 | **Date :** 10 septembre 2026 | **Licence :** MIT
+**Version :** 2.7.0 | **Date :** 11 septembre 2026 | **Licence :** MIT
 **Type :** Application Web (POS + Stock + Production)
 **Marché cible :** Togolais / OHADA (FCFA, Africa/Lome, SYSCOHADA, OTR)
 **Base URL :** https://stockpro.goodhealthforever.net
@@ -36,7 +36,6 @@
 25. [API REST](#25-api-rest)
 26. [Progressive Web App (PWA)](#26-progressive-web-app-pwa)
 27. [Annexes](#27-annexes)
-28. [Historique des versions](#28-historique-des-versions)
 28. [Historique des versions](#28-historique-des-versions)
 
 ---
@@ -229,7 +228,7 @@ eStock_mira_shop/
 │   └── production_checklist.md
 ├── includes/
 │   ├── db_functions.php    # Toutes les requêtes SQL (5155 lignes)
-│   ├── usine_functions.php # Module usine (918 lignes)
+│   ├── usine_functions.php # Module usine (1756 lignes)
 │   ├── helpers.php         # Logique métier (1083 lignes)
 │   ├── header.php          # Layout sidebar + topbar (158 lignes)
 │   ├── sidebar.php         # Sidebar unifiée (partagée PHP + Twig) (68 lignes)
@@ -240,8 +239,8 @@ eStock_mira_shop/
 ├── templates/              # 24 templates Twig
 ├── tests/
 │   ├── bootstrap.php       # Bootstrap PHPUnit
-│   ├── Unit/               # 4 tests unitaires
-│   ├── Integration/        # 6 tests d'intégration
+│   ├── Unit/               # 5 tests unitaires
+│   ├── Integration/        # 8 tests d'intégration
 │   └── fixtures/           # Fixtures concurrence
 ├── *.php                   # 40+ pages PHP racine
 ├── composer.json           # Dépendances Composer
@@ -1130,6 +1129,7 @@ Tables : `productions`, `production_matieres`, `production_produits`, `productio
 | `production_cloturer` | Clôturer une production |
 | `machines_consulter` | Consulter les machines |
 | `machines_gerer` | Créer/modifier les machines |
+| `machines_demarrer` | Démarrer/arrêter les machines |
 | `notifications_usine_consulter` | Consulter les notifications |
 | `notifications_usine_gerer` | Gérer les notifications |
 | `horaires_consulter` | Consulter les horaires |
@@ -1349,7 +1349,7 @@ Triggers MySQL sur :
 ### 24.9. Transactions et intégrité
 
 - `db_article_insert` : transactionnel (échec = rollback complet)
-- `db_stock_magasin_update` : protection contre les stock négatifs (`GREATEST(0,...)`)
+- `db_stock_magasin_update` : protection contre les stock négatifs (RuntimeException si stock insuffisant)
 - `db_fournisseur_delete` : vérification FK avant suppression
 - `db_inventaire_appliquer_ecarts` : transactionnel (échec = rollback complet)
 - `db_retour_creer` : transactionnel
@@ -1519,7 +1519,7 @@ Cache nommé `estock-v2` avec nettoyage automatique.
 `articles`, `categories`, `fournisseurs`, `magasins`, `stock_magasins`, `article_lots`, `article_couts`, `usines`, `user_magasins`
 
 **Tables de vente :**
-`factures`, `lignes_facture`, `paiements_facture`, `clotures_caisse`, `retours_factures`, `lignes_retour`
+`factures`, `lignes_facture`, `paiements_facture`, `clotures_caisse`, `retours_factures`, `lignes_retour`, `creances_clients`, `paiements_credit`
 
 **Tables d'approvisionnement :**
 `commandes_fournisseur`, `lignes_commande_fournisseur`, `receptions`, `reception_lignes`, `pertes_fournisseur`, `fournisseur_prix_historique`, `tranches_tarifaires`
@@ -1546,7 +1546,7 @@ Cache nommé `estock-v2` avec nettoyage automatique.
 `employes`, `presences_employes`
 
 **Tables équipes :**
-`equipes`, `equipe_membres`, `equipe_magasins`
+`equipes`, `equipe_membres` (composite PK `equipe_id`+`user_id`, support temporel), `equipe_magasins`
 
 **Tables notifications :**
 `notifications`, `horaires_travail`
@@ -1566,11 +1566,11 @@ Cache nommé `estock-v2` avec nettoyage automatique.
 | `inventaire_tables.php` | `php bin/inventaire_tables.php [--md]` | Inventaire tables vs schéma SQL |
 | `preflight_release.php` | `php bin/preflight_release.php` | Contrôles pré-livraison |
 
-### 27.3. Tests PHPUnit
+### 27.3. Tests PHPUnit (111 tests, 424 assertions)
 
 **Config :** `phpunit.xml` | **Bootstrap :** `tests/bootstrap.php`
 
-**Tests unitaires (4) :**
+**Tests unitaires (5) :**
 
 | Test | Description |
 |---|---|
@@ -1578,8 +1578,9 @@ Cache nommé `estock-v2` avec nettoyage automatique.
 | `ConformiteTogoUnitTest` | Régime TPU/TVA, cohérence mentions |
 | `PrixDynamiqueUnitTest` | Tranches tarifaires, prix fournisseur, calcul intégré |
 | `ValidationUnitTest` | `extract_post_data()` (coercition, bornage, types) |
+| `RbacUnitTest` | RBAC dynamique, permissions, hiérarchie, multi-rôles (14 tests) |
 
-**Tests d'intégration (7) :**
+**Tests d'intégration (8) :**
 
 | Test | Description |
 |---|---|
@@ -1590,6 +1591,7 @@ Cache nommé `estock-v2` avec nettoyage automatique.
 | `UsineProductionTest` | Cycle complet production, recettes, transfert, personnel |
 | `ReceptionPrixFournisseurTest` | Réceptions partielles, pertes, prix dynamiques |
 | `TraabiliteUsineTest` | Machines CRUD, notifications, horaires, retards, rendement |
+| `EquipesTest` | CRUD équipes, membres, périmètre magasins (10 tests) |
 
 Exécution :
 ```bash
@@ -1706,7 +1708,7 @@ vendor/bin/phpunit --testsuite Integration  # Tests intégration
 | Chaînage | 3 | `db_sequence_next`, `db_facture_chainer` |
 | **TOTAL** | **~180 fonctions** | |
 
-### 27.8. Fonctions Usine (`includes/usine_functions.php` — ~1500 lignes)
+### 27.8. Fonctions Usine (`includes/usine_functions.php` — ~1750 lignes)
 
 | Domaine | Fonctions |
 |---|---|
@@ -1729,6 +1731,7 @@ vendor/bin/phpunit --testsuite Integration  # Tests intégration
 | **Retards** | `db_calculer_retard`, `db_presences_avec_retards`, `db_employes_absents` |
 | **Rendement** | `db_rendement_production`, `db_rendement_par_categorie`, `db_rapport_matiere_production` |
 | **Catégories pertes** | `db_categorie_perte_insert`, `_list`, `_delete` |
+| **Équipes** | `db_equipes_list`, `db_equipe_insert`, `db_equipe_update`, `db_equipe_delete`, `db_equipe_set_membres`, `db_equipe_membres`, `db_user_equipes` |
 
 ### 27.9. Helpers principaux (`includes/helpers.php` — 1083 lignes)
 
@@ -1756,7 +1759,8 @@ vendor/bin/phpunit --testsuite Integration  # Tests intégration
 | `ROLE_ADMIN` | `ADMIN` | Administration complète |
 | `ROLE_MAGASINIER` | `MAGASINIER` | Gestion d'un magasin |
 | `ROLE_VENDEUR` | `VENDEUR` | Vente au comptoir |
-| `ROLE_CHEF_EQUIPE` | `CHEF_EQUIPE` | Encadrement d'équipe |
+| `ROLE_CHEF_EQUIPE` | `CHEF_EQUIPE` | Encadrement d'équipe boutique |
+| `ROLE_CHEF_EQUIPE_USINE` | `CHEF_EQUIPE_USINE` | Encadrement d'équipe usine |
 
 > **Note :** Ces constantes sont des alias. L'autorisation se fait via les permissions (`peut()`), pas directement via le nom du rôle.
 
@@ -1773,6 +1777,75 @@ vendor/bin/phpunit --testsuite Integration  # Tests intégration
 ---
 
 ## 28. HISTORIQUE DES VERSIONS
+
+### v2.7.0 — 11 septembre 2026
+
+**Ventes à crédit pour clients fidèles**
+
+**Nouvelles tables :**
+- `creances_clients` — Suivi des créances (facture, client, montant, statut, échéance)
+- `paiements_credit` — Historique des remboursements sur créances
+
+**Schéma étendu :**
+- `clients` : `credit_autorise` (TINYINT), `limite_credit` (DECIMAL)
+- `factures` : `statut_paiement` (ENUM: Payee/En_Attente/Partiellement_Payee/A_Credit/Annulee), `reste_a_payer` (DECIMAL)
+
+**Trigger modifié :**
+- `trg_factures_immutable_update` : les montants (`montant_paye`, `reste_a_payer`) sont modifiables tant que `hash_chaine IS NULL` (ventes crédit non finalisées)
+
+**Permissions (8 nouvelles) :**
+- `credit_consulter`, `credit_creer`, `credit_paiement_creer`, `credit_paiement_consulter`
+- `credit_modifier`, `credit_annuler`, `credit_rapport`, `credit_override_limit`
+
+**Backend (10 nouvelles fonctions) :**
+- `db_credit_check_limit`, `db_credit_client_info`, `db_creance_insert`, `db_creance_get_by_id`, `db_creance_get_by_facture`
+- `db_creance_paiement_insert`, `db_creance_paiements_list`, `db_creance_annuler`, `db_creances_search_sql`, `db_credit_rapport`
+- `db_creance_marquer_en_souffrance` (marque automatiquement les créances en retard)
+
+**Fonctions modifiées :**
+- `db_facture_insert` : accepte `statut_paiement` et `reste_a_payer`
+- `db_retour_creer` : ajuste automatiquement la créance lors d'un retour sur vente à crédit
+
+**Validation :**
+- `valider_facture.php` : mode `credit` (skip vérification paiement complet, validation client autorisé, vérification limite)
+- `api/index.php` caisse/sync : support `mode_vente` credit + 7 nouvelles routes API credit
+
+**Frontend :**
+- `caisse.php/js` : boutons toggle Comptoir/Crédit, panneau info crédit, validation adaptée
+- `clients.php` + `clients_detail.html.twig` : affichage crédit (limite, solde, disponible)
+- `creances.php` : page gestion des créances (liste filtrable, détail, paiement, annulation)
+- `templates/creances.html.twig` + `creance_detail.html.twig` : templates Bootstrap 5
+- Sidebar : lien "Créances (crédit)" dans Ventes & Caisse
+
+**Tests (10 tests, 31 assertions) :**
+- `CreditVenteTest` : création creance, paiement partiel/total, limites, override, rejet client non autorisé, retour ajuste creance, annulation
+
+### v2.6.0 — 11 septembre 2026
+
+**Audit de cohérence DB/backend/frontend + Corrections critiques**
+
+**Corrections critiques (P0) :**
+- `GREATEST(0,...)` remplacé par des guards explicites (`RuntimeException` si stock insuffisant) dans `db_stock_magasin_update`, `db_inventaire_appliquer_ecarts`, `db_deduire_stock_lot`, `db_matiere_sortie_usine`
+- Synchronisation `articles.quantite_stock` ajoutée lors de transfert usine → magasin (`db_transfert_usine_vers_magasin`)
+- Table `stock_produits_finis_usine` ajoutée au schéma de référence (manquait pour install fresh)
+- Types `int unsigned` corrigés en `int` pour les colonnes FK (`fournisseur_prix_historique`, `tranches_tarifaires`, `lignes_facture`, `receptions`, `pertes_fournisseur`)
+- Index dupliqué `idx_notif_type` renommé en `idx_notif_type_notif`
+
+**RBAC & Permissions :**
+- ~35 permissions manquantes ajoutées au schéma et à la migration consolidée
+- 8 permissions usine manquantes ajoutées (`machines_demarrer`, `horaires_consulter`, `horaires_gerer`, `notifications_usine_consulter`, `notifications_usine_gerer`, `rendement_consulter`, `categories_pertes_consulter`, `categories_pertes_gerer`)
+- `CHEF_EQUIPE_USINE` reçoit toutes les permissions usine dans les seeds
+- `user_role()` : cache statique remplacé par `global $_role_cache` (vidable via `reset_permissions_cache()`)
+- Tests RBAC : `$GLOBALS['pdo']` surchargé vers la base de test
+
+**Équipes :**
+- `user_equipes` → `equipe_membres` (composite PK, FK vers `utilisateurs` et `equipes`, support temporel `date_debut`/`date_fin`/`actif`)
+- 6 fonctions mises à jour dans `usine_functions.php` (`db_equipes_list`, `db_equipe_set_membres`, `db_equipe_membres`, `db_user_equipes`)
+
+**Tests (111 tests, 424 assertions) :**
+- 5 tests unitaires (dont `RbacUnitTest` avec 14 tests RBAC)
+- 8 tests d'intégration (dont `EquipesTest` avec 10 tests)
+- Corrections : `EquipesTest::testComptageMembres`, `UsineProductionTest::testTransfertUsineVersMagasin`, `TraabiliteUsineTest::testRendementCalculations`
 
 ### v2.5.0 — 10 septembre 2026
 
@@ -1825,7 +1898,7 @@ vendor/bin/phpunit --testsuite Integration  # Tests intégration
 - Suppression du bypass rôle dans `ticket_print.php` et `facture_a4.php`
 
 **Nouveau module Équipes :**
-- Tables `equipes`, `user_equipes`, `equipe_magasins`
+- Tables `equipes`, `equipe_membres`, `equipe_magasins`
 - CRUD complet avec API REST (`/api/equipes`)
 - Séparation rôle ≠ équipe ≠ périmètre (magasin)
 - 2 nouvelles permissions : `equipes_consulter`, `equipes_gerer`
@@ -1899,4 +1972,4 @@ vendor/bin/phpunit --testsuite Integration  # Tests intégration
 
 ---
 
-**eStock v2.4.0** — Application développée par Emmanuel-Le-Noble (noblecompagnie@gmail.com)
+**eStock v2.6.0** — Application développée par Emmanuel-Le-Noble (noblecompagnie@gmail.com)

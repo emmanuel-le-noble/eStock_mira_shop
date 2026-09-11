@@ -1,0 +1,177 @@
+{% extends "base.html.twig" %}
+
+{% block body %}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item active">Creances</li>
+    </ol>
+</nav>
+
+<!-- Rapport synthetique -->
+<div class="row g-3 mb-4">
+    <div class="col-md-2">
+        <div class="card text-center shadow-sm border-primary">
+            <div class="card-body py-2">
+                <div class="small text-muted">Total creances</div>
+                <div class="fs-5 fw-bold text-primary">{{ money(rapport.total_montant|default(0)) }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card text-center shadow-sm border-success">
+            <div class="card-body py-2">
+                <div class="small text-muted">Total paye</div>
+                <div class="fs-5 fw-bold text-success">{{ money(rapport.total_paye|default(0)) }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card text-center shadow-sm border-danger">
+            <div class="card-body py-2">
+                <div class="small text-muted">Reste a recevoir</div>
+                <div class="fs-5 fw-bold text-danger">{{ money(rapport.total_reste|default(0)) }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card text-center shadow-sm">
+            <div class="card-body py-2">
+                <div class="small text-muted">En cours</div>
+                <div class="fs-5 fw-bold">{{ rapport.nb_en_cours|default(0) }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card text-center shadow-sm">
+            <div class="card-body py-2">
+                <div class="small text-muted">En retard</div>
+                <div class="fs-5 fw-bold text-warning">{{ rapport.nb_retard|default(0) }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card text-center shadow-sm">
+            <div class="card-body py-2">
+                <div class="small text-muted">Clients</div>
+                <div class="fs-5 fw-bold">{{ rapport.nb_clients|default(0) }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Filtres -->
+<div class="card shadow-sm mb-3">
+    <div class="card-body py-2">
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-md-3">
+                <input type="text" name="search" class="form-control form-control-sm"
+                       placeholder="Client, facture..." value="{{ search|e }}">
+            </div>
+            <div class="col-md-2">
+                <select name="statut" class="form-select form-select-sm">
+                    <option value="">Tous les statuts</option>
+                    <option value="En_Cours" {{ statut_filter == 'En_Cours' ? 'selected' : '' }}>En cours</option>
+                    <option value="Partiellement_Payee" {{ statut_filter == 'Partiellement_Payee' ? 'selected' : '' }}>Partiellement payee</option>
+                    <option value="Payee" {{ statut_filter == 'Payee' ? 'selected' : '' }}>Payee</option>
+                    <option value="Annulee" {{ statut_filter == 'Annulee' ? 'selected' : '' }}>Annulee</option>
+                    <option value="En_Souffrance" {{ statut_filter == 'En_Souffrance' ? 'selected' : '' }}>En souffrance</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <input type="date" name="date_debut" class="form-control form-control-sm"
+                       value="{{ date_debut|e }}" placeholder="Date debut">
+            </div>
+            <div class="col-md-2">
+                <input type="date" name="date_fin" class="form-control form-control-sm"
+                       value="{{ date_fin|e }}" placeholder="Date fin">
+            </div>
+            <div class="col-md-1">
+                <button type="submit" class="btn btn-primary btn-sm w-100"><i class="bi bi-search"></i></button>
+            </div>
+            <div class="col-md-1">
+                <a href="creances.php" class="btn btn-outline-secondary btn-sm w-100">Reset</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Liste -->
+<div class="card shadow-sm">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover table-sm mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Facture</th>
+                        <th>Client</th>
+                        <th class="text-end">Montant</th>
+                        <th class="text-end">Paye</th>
+                        <th class="text-end">Reste</th>
+                        <th>Statut</th>
+                        <th>Echeance</th>
+                        <th class="text-center">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for c in creances %}
+                    <tr>
+                        <td class="small">{{ c.numero_facture|e }}</td>
+                        <td>{{ c.client_nom|e }}</td>
+                        <td class="text-end">{{ money(c.montant_total) }}</td>
+                        <td class="text-end text-success">{{ money(c.montant_paye) }}</td>
+                        <td class="text-end fw-bold {% if c.reste_a_payer > 0 %}text-danger{% else %}text-success{% endif %}">
+                            {{ money(c.reste_a_payer) }}
+                        </td>
+                        <td>
+                            {% if c.statut == 'Payee' %}
+                                <span class="badge text-bg-success">Payee</span>
+                            {% elseif c.statut == 'En_Cours' %}
+                                <span class="badge text-bg-primary">En cours</span>
+                            {% elseif c.statut == 'Partiellement_Payee' %}
+                                <span class="badge text-bg-warning">Partiel</span>
+                            {% elseif c.statut == 'En_Souffrance' %}
+                                <span class="badge text-bg-danger">Souffrance</span>
+                            {% elseif c.statut == 'Annulee' %}
+                                <span class="badge text-bg-secondary">Annulee</span>
+                            {% endif %}
+                        </td>
+                        <td class="small">
+                            {% if c.date_echeance %}
+                                {% set echeance_date = c.date_echeance|date('Y-m-d') %}
+                                {% if echeance_date < 'now'|date('Y-m-d') and c.statut not in ['Payee','Annulee'] %}
+                                    <span class="text-danger fw-bold">{{ date_fr(c.date_echeance) }}</span>
+                                {% else %}
+                                    {{ date_fr(c.date_echeance) }}
+                                {% endif %}
+                            {% else %}
+                                —
+                            {% endif %}
+                        </td>
+                        <td class="text-center">
+                            <a href="creances.php?action=detail&id={{ c.id }}" class="btn btn-outline-primary btn-sm" title="Voir">
+                                <i class="bi bi-eye"></i>
+                            </a>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="8" class="text-center text-muted py-4">Aucune creance trouvee.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Pagination -->
+{% if total_pages > 1 %}
+<nav class="mt-3">
+    <ul class="pagination pagination-sm justify-content-center">
+        {% for p in range(1, total_pages) %}
+        <li class="page-item {{ p == page ? 'active' : '' }}">
+            <a class="page-link" href="?page={{ p }}&search={{ search|url_encode }}&statut={{ statut_filter|url_encode }}&date_debut={{ date_debut|url_encode }}&date_fin={{ date_fin|url_encode }}">{{ p }}</a>
+        </li>
+        {% endfor %}
+    </ul>
+</nav>
+{% endif %}
+{% endblock %}

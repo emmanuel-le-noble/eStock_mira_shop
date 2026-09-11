@@ -1,0 +1,155 @@
+{% extends "base.html.twig" %}
+
+{% block body %}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="creances.php">Creances</a></li>
+        <li class="breadcrumb-item active">Creance #{{ creance.numero_facture|e }}</li>
+    </ol>
+</nav>
+
+<div class="row g-3 mb-4">
+    <!-- Infos creance -->
+    <div class="col-md-6">
+        <div class="card shadow-sm h-100">
+            <div class="card-header bg-white">
+                <h6 class="mb-0"><i class="bi bi-receipt"></i> Facture #{{ creance.numero_facture|e }}</h6>
+            </div>
+            <div class="card-body">
+                <table class="table table-sm mb-0">
+                    <tbody>
+                        <tr><th class="text-muted">Client</th><td>{{ creance.client_nom|e }}</td></tr>
+                        <tr><th class="text-muted">Telephone</th><td>{{ creance.client_telephone|e ?: '—' }}</td></tr>
+                        <tr><th class="text-muted">Montant total</th><td class="fw-bold">{{ money(creance.montant_total) }}</td></tr>
+                        <tr><th class="text-muted">Deja paye</th><td class="text-success">{{ money(creance.montant_paye) }}</td></tr>
+                        <tr><th class="text-muted">Reste a payer</th>
+                            <td class="fw-bold {% if creance.reste_a_payer > 0 %}text-danger{% else %}text-success{% endif %}">
+                                {{ money(creance.reste_a_payer) }}
+                            </td>
+                        </tr>
+                        <tr><th class="text-muted">Statut</th>
+                            <td>
+                                {% if creance.statut == 'Payee' %}
+                                    <span class="badge text-bg-success">Payee</span>
+                                {% elseif creance.statut == 'En_Cours' %}
+                                    <span class="badge text-bg-primary">En cours</span>
+                                {% elseif creance.statut == 'Partiellement_Payee' %}
+                                    <span class="badge text-bg-warning">Partiellement payee</span>
+                                {% elseif creance.statut == 'En_Souffrance' %}
+                                    <span class="badge text-bg-danger">En souffrance</span>
+                                {% elseif creance.statut == 'Annulee' %}
+                                    <span class="badge text-bg-secondary">Annulee</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        <tr><th class="text-muted">Echeance</th>
+                            <td>{{ creance.date_echeance ? date_fr(creance.date_echeance) : '—' }}</td>
+                        </tr>
+                        <tr><th class="text-muted">Creee le</th><td>{{ date_fr(creance.date_creation) }}</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Paiements -->
+    <div class="col-md-6">
+        <div class="card shadow-sm h-100">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                <h6 class="mb-0"><i class="bi bi-cash-stack"></i> Paiements</h6>
+                <span class="badge text-bg-secondary">{{ paiements|length }}</span>
+            </div>
+            <div class="card-body">
+                {% if creance.statut not in ['Payee','Annulee'] and peut_paiement %}
+                <form method="post" action="creances.php?action=paiement" class="mb-3 p-2 border rounded bg-light-subtle">
+                    {{ csrf_field() }}
+                    <input type="hidden" name="creance_id" value="{{ creance.id }}">
+                    <div class="row g-2 align-items-end">
+                        <div class="col-md-4">
+                            <label class="form-label small">Montant (FCFA)</label>
+                            <input type="number" name="montant" step="0.01" min="0.01"
+                                   max="{{ creance.reste_a_payer }}"
+                                   class="form-control form-control-sm" required placeholder="0.00">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small">Mode</label>
+                            <select name="mode_paiement" class="form-select form-select-sm">
+                                <option value="Especes">Especes</option>
+                                <option value="Mobile_Money">Mobile Money</option>
+                                <option value="Carte_Bancaire">Carte</option>
+                                <option value="Virement">Virement</option>
+                                <option value="Autre">Autre</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small">Reference</label>
+                            <input type="text" name="reference" class="form-control form-control-sm" placeholder="Optionnel">
+                        </div>
+                        <div class="col-md-2">
+                            <button type="submit" class="btn btn-success btn-sm w-100">
+                                <i class="bi bi-check"></i> Payer
+                            </button>
+                        </div>
+                    </div>
+                </form>
+                {% endif %}
+
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Date</th>
+                                <th>Mode</th>
+                                <th class="text-end">Montant</th>
+                                <th>Reference</th>
+                                <th>Agent</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for p in paiements %}
+                            <tr>
+                                <td class="small">{{ date_fr(p.date_paiement) }}</td>
+                                <td>
+                                    {% if p.mode_paiement == 'Especes' %}
+                                        <i class="bi bi-cash text-success"></i> Especes
+                                    {% elseif p.mode_paiement == 'Mobile_Money' %}
+                                        <i class="bi bi-phone text-primary"></i> Mobile
+                                    {% elseif p.mode_paiement == 'Carte_Bancaire' %}
+                                        <i class="bi bi-credit-card text-info"></i> Carte
+                                    {% else %}
+                                        {{ p.mode_paiement|e }}
+                                    {% endif %}
+                                </td>
+                                <td class="text-end fw-bold text-success">{{ money(p.montant) }}</td>
+                                <td class="small text-muted">{{ p.reference|e ?: '—' }}</td>
+                                <td class="small">{{ p.utilisateur_nom|e ?: '—' }}</td>
+                            </tr>
+                            {% else %}
+                            <tr><td colspan="5" class="text-center text-muted py-3">Aucun paiement enregistre.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Actions -->
+<div class="d-flex gap-2">
+    <a href="creances.php" class="btn btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> Retour a la liste
+    </a>
+    {% if creance.statut not in ['Payee','Annulee'] and peut_annuler %}
+    <form method="post" action="creances.php?action=annuler" class="d-inline"
+          onsubmit="return confirm('Annuler cette creance ? Cette action est irreversible.');">
+        {{ csrf_field() }}
+        <input type="hidden" name="creance_id" value="{{ creance.id }}">
+        <input type="hidden" name="motif" value="Annulation depuis la fiche">
+        <button type="submit" class="btn btn-outline-danger">
+            <i class="bi bi-x-circle"></i> Annuler la creance
+        </button>
+    </form>
+    {% endif %}
+</div>
+{% endblock %}

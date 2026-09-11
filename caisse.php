@@ -164,6 +164,7 @@ unset($_articles_pos);
                     <input type="hidden" id="inpTotalTtc" name="total_ttc" value="0">
                     <input type="hidden" id="inpClientId" name="client_id" value="0">
                     <input type="hidden" id="inpPointsUtilises" name="points_utilises" value="0">
+                    <input type="hidden" id="inpModeVente" name="mode_vente" value="comptoir">
 
                     <table class="table table-borderless mb-3">
                         <tr>
@@ -221,6 +222,38 @@ unset($_articles_pos);
                             <input type="number" id="pointsUtilises" min="0" step="1" value="0"
                                    class="form-control form-control-sm">
                             <div class="form-text small" id="lblRemiseFidelite"></div>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+
+                    <!-- Mode de vente : Comptoir / Crédit -->
+                    <?php if (peut('credit_creer')): ?>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold small">Mode de vente</label>
+                        <div class="d-flex gap-1" id="modeVenteTabs">
+                            <button type="button" class="btn btn-sm btn-mode-vente active" data-mode="comptoir">
+                                <i class="bi bi-shop"></i> Comptoir
+                            </button>
+                            <button type="button" class="btn btn-sm btn-mode-vente" data-mode="credit">
+                                <i class="bi bi-credit-card-2-front"></i> A Crédit
+                            </button>
+                        </div>
+                        <div id="creditInfoPanel" class="d-none mt-2 p-2 border rounded-3 bg-light-subtle small">
+                            <div class="d-flex justify-content-between">
+                                <span>Crédit disponible :</span>
+                                <span class="fw-bold text-primary" id="creditDisponible">0,00 FCFA</span>
+                            </div>
+                            <div class="d-flex justify-content-between">
+                                <span>Solde actuel :</span>
+                                <span id="creditSoldeActuel">0,00 FCFA</span>
+                            </div>
+                            <div class="d-flex justify-content-between">
+                                <span>Limite :</span>
+                                <span id="creditLimite">0,00 FCFA</span>
+                            </div>
+                            <div id="creditAlert" class="d-none mt-1 text-danger fw-bold">
+                                <i class="bi bi-exclamation-triangle"></i> <span id="creditAlertMsg"></span>
+                            </div>
                         </div>
                     </div>
                     <?php endif; ?>
@@ -311,6 +344,11 @@ unset($_articles_pos);
     </div>
 </div>
 
+<style>
+.btn-mode-vente { border: 1px solid #dee2e6; background: #f8f9fa; color: #495057; font-size: 0.78rem; padding: 4px 10px; }
+.btn-mode-vente.active { background: #0d6efd; color: #fff; border-color: #0d6efd; }
+.btn-mode-vente:hover:not(.active) { background: #e9ecef; }
+</style>
 <script nonce="<?= h(csp_nonce()) ?>">
 (function() {
     var articles = <?= $_articles_pos_json ?>;

@@ -171,6 +171,7 @@ if ($action === 'voir' && $idView > 0) {
         'points_par_facture' => $pointsParFacture,
         'peut_gerer'   => $peut_gerer,
         'fidelite_actif' => param_bool('fidelite_actif', false),
+        'credit_info'  => db_credit_client_info($pdo, $idView),
         'carte_lien'   => $peut_gerer && param_bool('fidelite_actif', false)
             ? generate_signed_url('carte_fidelite.php', $idView)
             : '',

@@ -197,7 +197,7 @@ function db_matiere_sortie_usine(PDO $pdo, int $matiere_id, float $quantite, ?st
 
         $pdo->prepare(
             "UPDATE stock_matieres_premieres SET quantite = quantite - ?,
-                    valeur_stock = GREATEST(0, valeur_stock - ?)
+                    valeur_stock = valeur_stock - ?
              WHERE matiere_id = ? AND quantite >= ?"
         )->execute([$quantite, $valeur_sortie, $matiere_id, $quantite]);
 
@@ -890,6 +890,10 @@ function db_transfert_usine_vers_magasin(PDO $pdo, int $article_id, int $magasin
              VALUES (?, ?, ?, 0, 5)
              ON DUPLICATE KEY UPDATE quantite = quantite + ?"
         )->execute([$magasin_destination_id, $article_id, $quantite, $quantite]);
+
+        // Maintenir le stock global (articles.quantite_stock) synchronisé
+        $pdo->prepare("UPDATE articles SET quantite_stock = quantite_stock + ? WHERE id = ?")
+            ->execute([$quantite, $article_id]);
 
         // Mouvement de stock principal
         db_mouvement_insert($pdo, $article_id, $user_id, 'TRANSFERT', $quantite,
@@ -1641,7 +1645,7 @@ function db_production_update_rendement(PDO $pdo, int $production_id): void {
 
 function db_equipes_list(PDO $pdo, ?string $type = null): array {
     $sql = "SELECT e.*, u.nom AS chef_nom,
-                   (SELECT COUNT(*) FROM user_equipes ue WHERE ue.equipe_id = e.id) AS nb_membres
+                   (SELECT COUNT(*) FROM equipe_membres ue WHERE ue.equipe_id = e.id AND ue.actif = 1) AS nb_membres
             FROM equipes e
             LEFT JOIN utilisateurs u ON u.id = e.chef_equipe_id
             WHERE e.actif = 1";
@@ -1697,21 +1701,22 @@ function db_equipe_delete(PDO $pdo, int $id): void {
 }
 
 function db_equipe_set_membres(PDO $pdo, int $equipe_id, array $user_ids): void {
-    $pdo->prepare("DELETE FROM user_equipes WHERE equipe_id = ?")->execute([$equipe_id]);
-    $stmt = $pdo->prepare("INSERT INTO user_equipes (user_id, equipe_id) VALUES (?, ?)");
+    $pdo->prepare("UPDATE equipe_membres SET actif = 0, date_fin = NOW() WHERE equipe_id = ? AND actif = 1")->execute([$equipe_id]);
+    $stmt = $pdo->prepare("INSERT INTO equipe_membres (equipe_id, user_id, date_debut, actif) VALUES (?, ?, NOW(), 1)
+        ON DUPLICATE KEY UPDATE actif = 1, date_debut = NOW(), date_fin = NULL");
     foreach ($user_ids as $uid) {
-        $stmt->execute([(int)$uid, $equipe_id]);
+        $stmt->execute([$equipe_id, (int)$uid]);
     }
 }
 
 function db_equipe_membres(PDO $pdo, int $equipe_id): array {
     $stmt = $pdo->prepare(
         "SELECT u.id, u.nom, u.login, r.code AS role_code, r.nom AS role_nom
-         FROM user_equipes ue
+         FROM equipe_membres ue
          JOIN utilisateurs u ON u.id = ue.user_id
          LEFT JOIN user_roles ur ON ur.user_id = u.id
          LEFT JOIN roles r ON r.id = ur.role_id
-         WHERE ue.equipe_id = ?
+         WHERE ue.equipe_id = ? AND ue.actif = 1
          ORDER BY u.nom"
     );
     $stmt->execute([$equipe_id]);
@@ -1741,9 +1746,9 @@ function db_equipe_magasins(PDO $pdo, int $equipe_id): array {
 function db_user_equipes(PDO $pdo, int $user_id): array {
     $stmt = $pdo->prepare(
         "SELECT e.id, e.nom, e.type
-         FROM user_equipes ue
+         FROM equipe_membres ue
          JOIN equipes e ON e.id = ue.equipe_id
-         WHERE ue.user_id = ?
+         WHERE ue.user_id = ? AND ue.actif = 1
          ORDER BY e.nom"
     );
     $stmt->execute([$user_id]);

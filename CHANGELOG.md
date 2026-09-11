@@ -6,6 +6,30 @@ sémantique (SemVer). La version courante est définie par `APP_VERSION` (`confi
 
 ## [Non publié] — En cours
 
+### 2026-09-11 — v2.7.0 : Ventes à crédit pour clients fidèles
+
+#### Ajouté
+- Tables `creances_clients` et `paiements_credit` pour le suivi des créances et remboursements
+- Colonnes `credit_autorise`, `limite_credit` sur `clients`
+- Colonnes `statut_paiement`, `reste_a_payer` sur `factures`
+- 8 permissions credit (`credit_consulter`, `credit_creer`, `credit_paiement_creer`, `credit_paiement_consulter`, `credit_modifier`, `credit_annuler`, `credit_rapport`, `credit_override_limit`)
+- 10 fonctions backend credit dans `db_functions.php`
+- Page `creances.php` avec templates Twig
+- Mode crédit dans la caisse (`caisse.php/js`)
+- Routes API credit (`/api/clients/{id}/credit`, `/api/creances`, `/api/creances/{id}/paiements`)
+- 10 tests d'intégration `CreditVenteTest`
+
+#### Modifié
+- Trigger `trg_factures_immutable_update` : montants modifiables avant hachage (credit)
+- `db_facture_insert` : supporte `statut_paiement` et `reste_a_payer`
+- `db_retour_creer` : ajuste automatiquement la créance lors de retour
+- `valider_facture.php` : mode credit (skip vérification paiement complet)
+- `api/index.php` : support `mode_vente` dans caisse/sync
+- `clients.php` : affichage info credit dans la fiche client
+- Sidebar : lien "Créances (crédit)" dans Ventes & Caisse
+
+---
+
 ### 2026-09-10 — Nettoyage ciblé du schéma (Option B : Usine conservée)
 
 #### Supprimé (base de données)

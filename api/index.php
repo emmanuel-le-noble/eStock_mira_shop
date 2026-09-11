@@ -291,6 +291,26 @@ match (true) {
     $resource === 'equipes' && $id > 0 && $method === 'DELETE'
         => handle_equipe_delete($id),
 
+    // --- Credit / Creances ---
+    $resource === 'clients' && $id > 0
+        && isset($segments[1]) && $segments[1] === 'credit' && $method === 'GET'
+        => handle_client_credit_info($id),
+    $resource === 'creances' && $method === 'GET'
+        => handle_creances_list(),
+    $resource === 'creances' && $id > 0 && $method === 'GET'
+        => handle_creance_get($id),
+    $resource === 'creances' && $id > 0
+        && isset($segments[1]) && $segments[1] === 'paiements' && $method === 'GET'
+        => handle_creance_paiements_list($id),
+    $resource === 'creances' && $id > 0
+        && isset($segments[1]) && $segments[1] === 'paiements' && $method === 'POST'
+        => handle_creance_paiement_create($id),
+    $resource === 'creances' && $id > 0
+        && isset($segments[1]) && $segments[1] === 'annuler' && $method === 'POST'
+        => handle_creance_annuler($id),
+    $resource === 'credit_rapport' && $method === 'GET'
+        => handle_credit_rapport(),
+
     // --- 404 ---
     default
         => json_out(['error' => 'Route introuvable.'], 404),
@@ -703,6 +723,7 @@ function handle_caisse_sync(): void {
     $userId       = (int)($input['user_id'] ?? 0);
     $clientId     = (int)($input['client_id'] ?? 0);
     $pointsUtilises = (int)($input['points_utilises'] ?? 0);
+    $modeVente    = input_string($input['mode_vente'] ?? 'comptoir');
 
     // Valider que le magasin soumis correspond au magasin de l'utilisateur authentifié
     $userMagasinId = user_magasin_id();
@@ -836,11 +857,30 @@ function handle_caisse_sync(): void {
             throw new RuntimeException('Le total TTC ne correspond pas au calculé (remise fidélité incluse).');
         }
 
-        if ($montantPaye < round($totalTtcCalc, 2)) {
-            throw new RuntimeException('Le montant payé est insuffisant.');
+        $isCredit = ($modeVente === 'credit');
+        if ($isCredit) {
+            if ($clientId <= 0) {
+                throw new RuntimeException('La selection d\'un client est obligatoire pour une vente a credit.');
+            }
+            $clientCredit = db_client_get_by_id($pdo, $clientId);
+            if (!$clientCredit || !$clientCredit['credit_autorise']) {
+                throw new RuntimeException('Ce client n\'est pas autorise pour les achats a credit.');
+            }
+            $montantCredit = round($totalTtcCalc - $montantPaye, 2);
+            if ($montantCredit > 0) {
+                $limitCheck = db_credit_check_limit($pdo, $clientId, $montantCredit);
+                if (!$limitCheck['ok'] && !peut('credit_override_limit')) {
+                    throw new RuntimeException($limitCheck['message']);
+                }
+            }
+        } else {
+            if ($montantPaye < round($totalTtcCalc, 2)) {
+                throw new RuntimeException('Le montant paye est insuffisant.');
+            }
         }
+        $monnaieRendue = $isCredit ? 0.0 : max(0.0, $montantPaye - $totalTtcCalc);
 
-        $factureId = db_facture_insert($pdo, [
+        $factureData = [
             'numero_facture' => $numero,
             'utilisateur_id' => user_courant()['id'] ?? null,
             'total_ht'       => round($totalHt, 2),
@@ -851,9 +891,15 @@ function handle_caisse_sync(): void {
             'magasin_id'     => $magasinId,
             'remise_fidelite'=> $loyautes !== null ? $loyautes['remise'] : 0.0,
             'points_utilises'=> $loyautes !== null ? $loyautes['points'] : 0,
-        ]);
+        ];
+        if ($isCredit) {
+            $reste = round($totalTtcCalc - $montantPaye, 2);
+            $factureData['statut_paiement'] = $reste > 0 ? 'En_Attente' : 'Payee';
+            $factureData['reste_a_payer'] = $reste;
+        }
+        $factureId = db_facture_insert($pdo, $factureData);
 
-        if ($loyautes !== null) {
+        if ($loyautes !== null || $clientId > 0) {
             $pdo->prepare("UPDATE factures SET client_id = ? WHERE id = ?")
                 ->execute([$clientId, $factureId]);
         }
@@ -888,6 +934,12 @@ function handle_caisse_sync(): void {
             if (is_array($paiementsList) && !empty($paiementsList)) {
                 db_paiements_insert($pdo, $factureId, array_values(array_filter($paiementsList, 'is_array')));
             }
+        }
+
+        // Creer la creance si vente a credit
+        if ($isCredit && $reste > 0) {
+            $echeance = date('Y-m-d', strtotime('+30 days'));
+            db_creance_insert($pdo, $factureId, $clientId, round($totalTtcCalc, 2), $echeance, null);
         }
 
         // Chaînage cryptographique des factures (après lignes + paiements)
@@ -2144,4 +2196,90 @@ function handle_equipe_delete(int $id): void {
     db_equipe_delete($pdo, $id);
     suivre_activite('EQUIPE_SUPPRIMEE', 'Équipe désactivée: #' . $id);
     json_out(['success' => true]);
+}
+
+// ============================================================
+//  CREDIT — Handlers API
+// ============================================================
+
+function handle_client_credit_info(int $client_id): void {
+    exiger_permission_api('credit_consulter');
+    global $pdo;
+    $info = db_credit_client_info($pdo, $client_id);
+    json_out($info);
+}
+
+function handle_creances_list(): void {
+    exiger_permission_api('credit_consulter');
+    global $pdo;
+    $filters = [];
+    if (!empty($_GET['client_id'])) $filters['client_id'] = (int)$_GET['client_id'];
+    if (!empty($_GET['statut']))    $filters['statut'] = $_GET['statut'];
+    if (!empty($_GET['date_debut'])) $filters['date_debut'] = $_GET['date_debut'];
+    if (!empty($_GET['date_fin']))  $filters['date_fin'] = $_GET['date_fin'];
+    if (!empty($_GET['search']))    $filters['search'] = $_GET['search'];
+    $result = db_creances_search_sql($pdo, $filters);
+    json_out($result);
+}
+
+function handle_creance_get(int $id): void {
+    exiger_permission_api('credit_consulter');
+    global $pdo;
+    $creance = db_creance_get_by_id($pdo, $id);
+    if (!$creance) json_out(['error' => 'Creance introuvable.'], 404);
+    $creance['paiements'] = db_creance_paiements_list($pdo, $id);
+    json_out($creance);
+}
+
+function handle_creance_paiements_list(int $creance_id): void {
+    exiger_permission_api('credit_paiement_consulter');
+    global $pdo;
+    $paiements = db_creance_paiements_list($pdo, $creance_id);
+    json_out(['paiements' => $paiements]);
+}
+
+function handle_creance_paiement_create(int $creance_id): void {
+    exiger_permission_api('credit_paiement_creer');
+    if (!api_csrf_ok()) json_out(['error' => 'Token CSRF invalide.'], 403);
+    global $pdo;
+    $input = json_decode(file_get_contents('php://input'), true);
+    if (!is_array($input)) $input = [];
+    $montant = (float)($input['montant'] ?? 0);
+    $modePaiement = input_string($input['mode_paiement'] ?? 'Especes');
+    $reference = input_string($input['reference'] ?? '');
+    $notes = input_string($input['notes'] ?? '');
+    if ($montant <= 0) {
+        json_out(['success' => false, 'error' => 'Le montant doit etre positif.'], 422);
+    }
+    try {
+        $paiementId = db_creance_paiement_insert($pdo, $creance_id, $montant, $modePaiement, $reference ?: null, user_id(), $notes ?: null);
+        suivre_activite('CREDIT_PAIEMENT', 'Paiement credit #' . $paiementId . ' sur creance #' . $creance_id . ' — ' . number_format($montant, 2, ',', ' ') . ' FCFA');
+        json_out(['success' => true, 'paiement_id' => $paiementId]);
+    } catch (RuntimeException $e) {
+        json_out(['success' => false, 'error' => $e->getMessage()], 422);
+    }
+}
+
+function handle_creance_annuler(int $id): void {
+    exiger_permission_api('credit_annuler');
+    if (!api_csrf_ok()) json_out(['error' => 'Token CSRF invalide.'], 403);
+    global $pdo;
+    $input = json_decode(file_get_contents('php://input'), true);
+    if (!is_array($input)) $input = [];
+    $motif = input_string($input['motif'] ?? '');
+    try {
+        db_creance_annuler($pdo, $id, user_id(), $motif ?: null);
+        suivre_activite('CREDIT_ANNULATION', 'Creance #' . $id . ' annulee');
+        json_out(['success' => true]);
+    } catch (RuntimeException $e) {
+        json_out(['success' => false, 'error' => $e->getMessage()], 422);
+    }
+}
+
+function handle_credit_rapport(): void {
+    exiger_permission_api('credit_rapport');
+    global $pdo;
+    $magasinId = !empty($_GET['magasin_id']) ? (int)$_GET['magasin_id'] : null;
+    $rapport = db_credit_rapport($pdo, $magasinId);
+    json_out($rapport);
 }

@@ -11,7 +11,6 @@ NUL
 
 # Dependances
 /vendor/
-composer.lock
 
 # Environnement
 .env

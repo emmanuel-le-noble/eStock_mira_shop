@@ -19,12 +19,14 @@ final class RbacUnitTest extends PHPUnit\Framework\TestCase
     {
         test_db_schema();
         self::$pdo = test_db();
+        // Override global $pdo so peut() queries the test DB
+        $GLOBALS['pdo'] = self::$pdo;
     }
 
     protected function setUp(): void
     {
         self::$pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
-        self::$pdo->exec('DELETE FROM user_equipes');
+        self::$pdo->exec('DELETE FROM equipe_membres');
         self::$pdo->exec('DELETE FROM equipe_magasins');
         self::$pdo->exec('DELETE FROM equipes');
         self::$pdo->exec('DELETE FROM user_roles');
@@ -88,6 +90,7 @@ final class RbacUnitTest extends PHPUnit\Framework\TestCase
 
     private function setupUserWithRoles(array $role_codes): void
     {
+        reset_permissions_cache();
         $_SESSION = ['user' => ['id' => 999, 'role' => $role_codes[0] ?? '']];
 
         // Créer un utilisateur de test
@@ -114,7 +117,7 @@ final class RbacUnitTest extends PHPUnit\Framework\TestCase
     public function testPeutReturnsTrueForGrantedPermission(): void
     {
         $this->setupUserWithRoles(['ADMIN']);
-        $this->assertTrue(peut('articles_consulter'), 'ADMIN doit pouvoir consulter les articles');
+        $this->assertTrue(peut('usine_consulter'), 'ADMIN doit pouvoir consulter l\'usine');
     }
 
     public function testPeutReturnsFalseForDeniedPermission(): void
@@ -132,9 +135,9 @@ final class RbacUnitTest extends PHPUnit\Framework\TestCase
     public function testMultiRoleCombinesPermissions(): void
     {
         $this->setupUserWithRoles(['VENDEUR', 'MAGASINIER']);
-        // VENDEUR a facturation_consulter, MAGASINIER a stock_consulter
-        $this->assertTrue(peut('facturation_consulter'), 'Multi-rôle : facturation via VENDEUR');
-        $this->assertTrue(peut('stock_consulter'), 'Multi-rôle : stock via MAGASINIER');
+        // VENDEUR a clients_consulter, MAGASINIER a receptions_consulter
+        $this->assertTrue(peut('clients_consulter'), 'Multi-rôle : clients via VENDEUR');
+        $this->assertTrue(peut('receptions_consulter'), 'Multi-rôle : réceptions via MAGASINIER');
     }
 
     // ============================================================

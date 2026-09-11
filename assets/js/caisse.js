@@ -56,6 +56,9 @@ document.addEventListener('DOMContentLoaded', function () {
     // Le panier : { [article_id]: {article, qte} }
     let panier = {};
 
+    // Mode de vente : comptoir ou credit
+    let modeVenteActif = 'comptoir';
+
     // Tolérance pour les comparaisons de montants (float JS)
     function montantInsuffisant(paye, attendu) {
         return paye < attendu - 0.02;
@@ -1092,7 +1095,12 @@ document.addEventListener('DOMContentLoaded', function () {
         // Activer/désactiver le bouton
         if (btnValider) {
             var panierVide = Object.keys(panier).length === 0;
-            btnValider.disabled = panierVide || montantInsuffisant(totalPaye, ttc) || ttc <= 0;
+            var isCrd = (modeVenteActif === 'credit');
+            if (isCrd) {
+                btnValider.disabled = panierVide || ttc <= 0;
+            } else {
+                btnValider.disabled = panierVide || montantInsuffisant(totalPaye, ttc) || ttc <= 0;
+            }
         }
     }
 
@@ -1111,9 +1119,15 @@ document.addEventListener('DOMContentLoaded', function () {
         var mobile = parseFloat(montantMobile?.value) || 0;
         var carte = parseFloat(montantCarte?.value) || 0;
         var totalPaye = especes + mobile + carte;
-        if (isNaN(totalPaye) || montantInsuffisant(totalPaye, ttc)) {
+        var isCredit = (modeVenteActif === 'credit');
+        if (!isCredit && (isNaN(totalPaye) || montantInsuffisant(totalPaye, ttc))) {
             e.preventDefault();
             alerter('Le montant payé est insuffisant (' + formatMoney(totalPaye) + ' / ' + formatMoney(ttc) + ').', 'danger');
+            return;
+        }
+        if (isCredit && !clientActuel) {
+            e.preventDefault();
+            alerter('Selectionnez un client pour une vente a credit.', 'danger');
             return;
         }
 
@@ -1290,4 +1304,79 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Premier rendu
     rafraichirPanier();
+
+    // ============================================================
+    //  MODE CREDIT — Gestion de la vente a credit
+    // ============================================================
+    const modeVenteTabs = document.getElementById('modeVenteTabs');
+    const inpModeVente = document.getElementById('inpModeVente');
+    const creditInfoPanel = document.getElementById('creditInfoPanel');
+    const creditDisponible = document.getElementById('creditDisponible');
+    const creditSoldeActuel = document.getElementById('creditSoldeActuel');
+    const creditLimite = document.getElementById('creditLimite');
+    const creditAlert = document.getElementById('creditAlert');
+    const creditAlertMsg = document.getElementById('creditAlertMsg');
+
+    if (modeVenteTabs) {
+        modeVenteTabs.querySelectorAll('.btn-mode-vente').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                modeVenteTabs.querySelectorAll('.btn-mode-vente').forEach(function(b) { b.classList.remove('active'); });
+                btn.classList.add('active');
+                modeVenteActif = btn.dataset.mode;
+                if (inpModeVente) inpModeVente.value = modeVenteActif;
+
+                if (modeVenteActif === 'credit') {
+                    creditInfoPanel.classList.remove('d-none');
+                    if (!clientActuel) {
+                        alerter('Selectionnez un client pour vendre a credit.', 'warning');
+                    } else {
+                        chargerCreditInfo(clientActuel.id);
+                    }
+                } else {
+                    creditInfoPanel.classList.add('d-none');
+                }
+                rafraichirPanier();
+            });
+        });
+    }
+
+    function chargerCreditInfo(clientId) {
+        if (!clientId || !creditInfoPanel) return;
+        fetch('/eStock_mira_shop/api/clients/' + clientId + '/credit')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (creditDisponible) creditDisponible.textContent = formatMoney(data.credit_disponible || 0);
+                if (creditSoldeActuel) creditSoldeActuel.textContent = formatMoney(data.solde_actuel || 0);
+                if (creditLimite) creditLimite.textContent = formatMoney(data.limite_credit || 0);
+                if (creditAlert) {
+                    if (!data.credit_autorise) {
+                        creditAlert.classList.remove('d-none');
+                        creditAlertMsg.textContent = 'Ce client n\'est pas autorise pour le credit.';
+                    } else {
+                        creditAlert.classList.add('d-none');
+                    }
+                }
+            })
+            .catch(function() {});
+    }
+
+    // Recharger les infos credit quand un client est selectionne
+    var _origSelectionnerClient = typeof selectionnerClient === 'function' ? selectionnerClient : null;
+
+    // Ecouter les changements de client via l'evenement custom
+    document.addEventListener('client-selected', function(e) {
+        if (modeVenteActif === 'credit' && e.detail && e.detail.id) {
+            chargerCreditInfo(e.detail.id);
+        }
+    });
+    document.addEventListener('client-cleared', function() {
+        if (creditInfoPanel) creditInfoPanel.classList.add('d-none');
+    });
+
+    // Modifier le comportement du bouton valider en mode credit
+    if (btnValider) {
+        var _origDisabled = btnValider.disabled;
+        var origRafraichirPanier = rafraichirPanier;
+        // Surcharge temporaire de rafraichirPanier pour gerer le mode credit
+    }
 });

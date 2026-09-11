@@ -837,6 +837,7 @@ function db_facture_number_exists(PDO $pdo, string $numero): bool {
 function db_facture_insert(PDO $pdo, array $data): int {
     $has_magasin = array_key_exists('magasin_id', $data);
     $has_fidelite = array_key_exists('remise_fidelite', $data) || array_key_exists('points_utilises', $data);
+    $has_credit = array_key_exists('statut_paiement', $data) || array_key_exists('reste_a_payer', $data);
     $columns = 'numero_facture, utilisateur_id, total_ht, tva_taux, total_ttc, montant_paye, monnaie_rendue, statut';
     $placeholders = '?, ?, ?, ?, ?, ?, ?, \'Payee\'';
     if ($has_magasin) {
@@ -845,6 +846,10 @@ function db_facture_insert(PDO $pdo, array $data): int {
     }
     if ($has_fidelite) {
         $columns .= ', remise_fidelite, points_utilises';
+        $placeholders .= ', ?, ?';
+    }
+    if ($has_credit) {
+        $columns .= ', statut_paiement, reste_a_payer';
         $placeholders .= ', ?, ?';
     }
     $stmt = $pdo->prepare("INSERT INTO factures ($columns) VALUES ($placeholders)");
@@ -863,6 +868,10 @@ function db_facture_insert(PDO $pdo, array $data): int {
     if ($has_fidelite) {
         $params[] = $data['remise_fidelite'] ?? 0.0;
         $params[] = $data['points_utilises'] ?? 0;
+    }
+    if ($has_credit) {
+        $params[] = $data['statut_paiement'] ?? 'Payee';
+        $params[] = $data['reste_a_payer'] ?? 0.0;
     }
     $stmt->execute($params);
     return (int)$pdo->lastInsertId();
@@ -1357,12 +1366,18 @@ function db_stock_magasin_get_for_update(PDO $pdo, int $magasin_id, int $article
  * Mettre à jour le stock d'un article dans un magasin (delta positif ou négatif).
  */
 function db_stock_magasin_update(PDO $pdo, int $magasin_id, int $article_id, int $delta): void {
-    // Protéger contre le stock négatif sur les deux tables
-    $stmt = $pdo->prepare("UPDATE stock_magasins SET quantite = GREATEST(0, quantite + :delta) WHERE magasin_id = :mag AND article_id = :art");
+    if ($delta < 0) {
+        $check = $pdo->prepare("SELECT quantite FROM stock_magasins WHERE magasin_id = :mag AND article_id = :art FOR UPDATE");
+        $check->execute([':mag' => $magasin_id, ':art' => $article_id]);
+        $row = $check->fetch(PDO::FETCH_ASSOC);
+        if (!$row || (int)$row['quantite'] + $delta < 0) {
+            throw new RuntimeException("Stock insuffisant pour l'article #$article_id dans le magasin #$magasin_id.");
+        }
+    }
+    $stmt = $pdo->prepare("UPDATE stock_magasins SET quantite = quantite + :delta WHERE magasin_id = :mag AND article_id = :art");
     $stmt->execute([':delta' => $delta, ':mag' => $magasin_id, ':art' => $article_id]);
 
-    // Conserver le stock global cohérent avec les mouvements par magasin
-    $pdo->prepare("UPDATE articles SET quantite_stock = GREATEST(0, quantite_stock + :delta) WHERE id = :art")
+    $pdo->prepare("UPDATE articles SET quantite_stock = quantite_stock + :delta WHERE id = :art")
         ->execute([':delta' => $delta, ':art' => $article_id]);
 }
 
@@ -3245,8 +3260,8 @@ function db_deduire_stock_lot(PDO $pdo, int $article_id, int $magasin_id, int $q
         }
 
         // 3bis. Maintenir le stock global (articles.quantite_stock) synchronisé
-        $pdo->prepare("UPDATE articles SET quantite_stock = GREATEST(0, quantite_stock - :qte) WHERE id = :art")
-            ->execute([':qte' => $a_prendre, ':art' => $article_id]);
+        $pdo->prepare("UPDATE articles SET quantite_stock = quantite_stock - :qte WHERE id = :art AND quantite_stock >= :qte2")
+            ->execute([':qte' => $a_prendre, ':art' => $article_id, ':qte2' => $a_prendre]);
 
         // 4. Enregistrer la traçabilité
         $date_peremption = $lot['date_peremption'] ? " (DLC: {$lot['date_peremption']})" : '';
@@ -3694,7 +3709,15 @@ function db_inventaire_appliquer_ecarts(PDO $pdo, int $inventaire_id, int $user_
             // Sans magasin défini : mise à jour directe du stock global uniquement.
             // Avec magasin, process_stock_movement() synchronise déjà le stock global (évite tout double décompte).
             if ($magasin_id <= 0) {
-                $pdo->prepare("UPDATE articles SET quantite_stock = GREATEST(0, quantite_stock + :delta) WHERE id = :id")
+                if ($ecart < 0) {
+                    $check = $pdo->prepare("SELECT quantite_stock FROM articles WHERE id = :id FOR UPDATE");
+                    $check->execute([':id' => $article_id]);
+                    $cur = (int)($check->fetchColumn() ?: 0);
+                    if ($cur + $ecart < 0) {
+                        throw new RuntimeException("Ajustement impossible : stock insuffisant pour l'article #$article_id.");
+                    }
+                }
+                $pdo->prepare("UPDATE articles SET quantite_stock = quantite_stock + :delta WHERE id = :id")
                     ->execute([':delta' => $ecart, ':id' => $article_id]);
             }
 
@@ -3849,6 +3872,28 @@ function db_retour_creer(PDO $pdo, int $facture_id, array $lignes_retour, string
                     $user_id,
                     $magasin_id
                 );
+            }
+        }
+
+        // Ajuster la creance si la facture est a credit
+        $stmtFact = $pdo->prepare("SELECT statut_paiement, reste_a_payer FROM factures WHERE id = ?");
+        $stmtFact->execute([$facture_id]);
+        $facture = $stmtFact->fetch(PDO::FETCH_ASSOC);
+        if ($facture && in_array($facture['statut_paiement'], ['En_Attente', 'Partiellement_Payee', 'A_Credit'], true)) {
+            $stmtCreance = $pdo->prepare("SELECT id, reste_a_payer, montant_paye FROM creances_clients WHERE facture_id = ? AND statut IN ('En_Cours','Partiellement_Payee','En_Souffrance') FOR UPDATE");
+            $stmtCreance->execute([$facture_id]);
+            $creance = $stmtCreance->fetch(PDO::FETCH_ASSOC);
+            if ($creance) {
+                $nouveauReste = max(0.0, (float)$creance['reste_a_payer'] - $montantTotal);
+                $nouveauPaye = (float)$creance['montant_paye'] + $montantTotal;
+                $nouveauStatut = $nouveauReste <= 0 ? 'Payee' : 'Partiellement_Payee';
+
+                $pdo->prepare("UPDATE creances_clients SET reste_a_payer = ?, montant_paye = ?, statut = ? WHERE id = ?")
+                    ->execute([$nouveauReste, $nouveauPaye, $nouveauStatut, $creance['id']]);
+
+                $factureStatutPaiement = $nouveauReste <= 0 ? 'Payee' : 'Partiellement_Payee';
+                $pdo->prepare("UPDATE factures SET montant_paye = montant_paye + ?, reste_a_payer = ?, statut_paiement = ? WHERE id = ?")
+                    ->execute([$montantTotal, $nouveauReste, $factureStatutPaiement, $facture_id]);
             }
         }
 
@@ -5189,5 +5234,323 @@ function db_stats_cout_reel_ventes(PDO $pdo, string $debut, string $fin, int $ma
     return round($cout, 2);
 }
 
+// ============================================================
+//  CREDIT — Gestion des ventes à crédit
+// ============================================================
+
+/**
+ * Vérifier la disponibilité de crédit pour un client.
+ */
+function db_credit_check_limit(PDO $pdo, int $client_id, float $montant_vente): array {
+    $stmt = $pdo->prepare("SELECT credit_autorise, limite_credit FROM clients WHERE id = ? AND anonymise = 0");
+    $stmt->execute([$client_id]);
+    $client = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$client) {
+        return ['ok' => false, 'limite' => 0, 'solde_actuel' => 0, 'credit_disponible' => 0, 'message' => 'Client introuvable.'];
+    }
+    if (!$client['credit_autorise']) {
+        return ['ok' => false, 'limite' => 0, 'solde_actuel' => 0, 'credit_disponible' => 0, 'message' => 'Ce client n\'est pas autorise pour les achats a credit.'];
+    }
+    $limite = (float)$client['limite_credit'];
+    $stmt2 = $pdo->prepare(
+        "SELECT COALESCE(SUM(reste_a_payer), 0) AS solde
+         FROM creances_clients
+         WHERE client_id = ? AND statut IN ('En_Cours','Partiellement_Payee','En_Souffrance')"
+    );
+    $stmt2->execute([$client_id]);
+    $solde = (float)$stmt2->fetchColumn();
+    $disponible = max(0, $limite - $solde);
+    $nouveau_solde = $solde + $montant_vente;
+    $ok = $nouveau_solde <= $limite;
+    $message = $ok
+        ? "Credit disponible: " . number_format($disponible, 2, ',', ' ') . " FCFA"
+        : "Limite depasseee. Disponible: " . number_format($disponible, 2, ',', ' ') . " FCFA, necesaire: " . number_format($montant_vente, 2, ',', ' ') . " FCFA";
+    return ['ok' => $ok, 'limite' => $limite, 'solde_actuel' => $solde, 'credit_disponible' => $disponible, 'message' => $message];
+}
+
+/**
+ * Informations credit d'un client.
+ */
+function db_credit_client_info(PDO $pdo, int $client_id): array {
+    $stmt = $pdo->prepare("SELECT credit_autorise, limite_credit FROM clients WHERE id = ? AND anonymise = 0");
+    $stmt->execute([$client_id]);
+    $client = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$client) {
+        return ['credit_autorise' => false, 'limite_credit' => 0, 'solde_actuel' => 0, 'credit_disponible' => 0];
+    }
+    $stmt2 = $pdo->prepare(
+        "SELECT COALESCE(SUM(reste_a_payer), 0) AS solde
+         FROM creances_clients
+         WHERE client_id = ? AND statut IN ('En_Cours','Partiellement_Payee','En_Souffrance')"
+    );
+    $stmt2->execute([$client_id]);
+    $solde = (float)$stmt2->fetchColumn();
+    $limite = (float)$client['limite_credit'];
+    return [
+        'credit_autorise'   => (bool)$client['credit_autorise'],
+        'limite_credit'     => $limite,
+        'solde_actuel'      => $solde,
+        'credit_disponible' => max(0, $limite - $solde),
+    ];
+}
+
+/**
+ * Créer une creance pour une vente à crédit.
+ */
+function db_creance_insert(PDO $pdo, int $facture_id, int $client_id, float $montant_total, ?string $date_echeance = null, ?string $notes = null): int {
+    $stmt = $pdo->prepare("
+        INSERT INTO creances_clients (facture_id, client_id, montant_total, montant_paye, reste_a_payer, statut, date_echeance, notes)
+        VALUES (?, ?, ?, 0.00, ?, 'En_Cours', ?, ?)
+    ");
+    $stmt->execute([$facture_id, $client_id, $montant_total, $montant_total, $date_echeance, $notes]);
+    return (int)$pdo->lastInsertId();
+}
+
+/**
+ * Récupérer une creance par ID.
+ */
+function db_creance_get_by_id(PDO $pdo, int $id): ?array {
+    $stmt = $pdo->prepare("
+        SELECT c.*, f.numero_facture, f.total_ttc, f.statut AS facture_statut,
+               cl.nom AS client_nom, cl.telephone AS client_telephone
+        FROM creances_clients c
+        JOIN factures f ON f.id = c.facture_id
+        JOIN clients cl ON cl.id = c.client_id
+        WHERE c.id = ?
+    ");
+    $stmt->execute([$id]);
+    return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+}
+
+/**
+ * Récupérer la creance associée à une facture.
+ */
+function db_creance_get_by_facture(PDO $pdo, int $facture_id): ?array {
+    $stmt = $pdo->prepare("SELECT * FROM creances_clients WHERE facture_id = ?");
+    $stmt->execute([$facture_id]);
+    return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+}
+
+/**
+ * Enregistrer un paiement sur une creance.
+ * Met à jour creances_clients, paiements_credit, et factures.
+ */
+function db_creance_paiement_insert(PDO $pdo, int $creance_id, float $montant, string $mode_paiement, ?string $reference, int $utilisateur_id, ?string $notes = null): int {
+    $pdo->beginTransaction();
+    try {
+        // Vérifier la creance
+        $stmt = $pdo->prepare("SELECT * FROM creances_clients WHERE id = ? FOR UPDATE");
+        $stmt->execute([$creance_id]);
+        $creance = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$creance) {
+            throw new RuntimeException("Creance introuvable.");
+        }
+        if ($creance['statut'] === 'Payee' || $creance['statut'] === 'Annulee') {
+            throw new RuntimeException("Cette creance est deja " . ($creance['statut'] === 'Payee' ? 'payee' : 'annulee') . ".");
+        }
+        if ($montant <= 0) {
+            throw new RuntimeException("Le montant du paiement doit etre positif.");
+        }
+
+        // Insérer le paiement
+        $stmtInsert = $pdo->prepare("
+            INSERT INTO paiements_credit (creance_id, montant, mode_paiement, reference, utilisateur_id, notes)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ");
+        $stmtInsert->execute([$creance_id, $montant, $mode_paiement, $reference, $utilisateur_id, $notes]);
+        $paiementId = (int)$pdo->lastInsertId();
+
+        // Mettre à jour la creance
+        $nouveauPaye = (float)$creance['montant_paye'] + $montant;
+        $nouveauReste = max(0.0, (float)$creance['reste_a_payer'] - $montant);
+        $nouveauStatut = $nouveauReste <= 0 ? 'Payee' : 'Partiellement_Payee';
+
+        $stmtUpdate = $pdo->prepare("
+            UPDATE creances_clients
+            SET montant_paye = ?, reste_a_payer = ?, statut = ?
+            WHERE id = ?
+        ");
+        $stmtUpdate->execute([$nouveauPaye, $nouveauReste, $nouveauStatut, $creance_id]);
+
+        // Mettre à jour la facture
+        $factureStatutPaiement = $nouveauReste <= 0 ? 'Payee' : 'Partiellement_Payee';
+        $stmtFact = $pdo->prepare("
+            UPDATE factures
+            SET montant_paye = ?, reste_a_payer = ?, statut_paiement = ?
+            WHERE id = ?
+        ");
+        $stmtFact->execute([$nouveauPaye, $nouveauReste, $factureStatutPaiement, $creance['facture_id']]);
+
+        $pdo->commit();
+        return $paiementId;
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
+}
+
+/**
+ * Lister les paiements d'une creance.
+ */
+function db_creance_paiements_list(PDO $pdo, int $creance_id): array {
+    $stmt = $pdo->prepare("
+        SELECT pc.*, u.nom AS utilisateur_nom
+        FROM paiements_credit pc
+        LEFT JOIN utilisateurs u ON u.id = pc.utilisateur_id
+        WHERE pc.creance_id = ?
+        ORDER BY pc.date_paiement ASC
+    ");
+    $stmt->execute([$creance_id]);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
+ * Annuler une creance.
+ */
+function db_creance_annuler(PDO $pdo, int $creance_id, int $utilisateur_id, ?string $motif = null): void {
+    $pdo->beginTransaction();
+    try {
+        $stmt = $pdo->prepare("SELECT * FROM creances_clients WHERE id = ? FOR UPDATE");
+        $stmt->execute([$creance_id]);
+        $creance = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$creance) {
+            throw new RuntimeException("Creance introuvable.");
+        }
+        if ($creance['statut'] === 'Annulee') {
+            throw new RuntimeException("Cette creance est deja annulee.");
+        }
+
+        // Vérifier qu'aucun paiement n'a été enregistré
+        $stmtCount = $pdo->prepare("SELECT COUNT(*) FROM paiements_credit WHERE creance_id = ?");
+        $stmtCount->execute([$creance_id]);
+        if ((int)$stmtCount->fetchColumn() > 0) {
+            throw new RuntimeException("Impossible d'annuler une creance avec des paiements enregistres.");
+        }
+
+        // Annuler la creance
+        $notesAnnulation = $motif ? ('Annulee: ' . $motif) : 'Annulee';
+        $stmtUpdate = $pdo->prepare("UPDATE creances_clients SET statut = 'Annulee', notes = ?, date_modification = NOW() WHERE id = ?");
+        $stmtUpdate->execute([$notesAnnulation, $creance_id]);
+
+        // Mettre à jour la facture
+        $stmtFact = $pdo->prepare("
+            UPDATE factures
+            SET statut_paiement = 'Annulee', reste_a_payer = 0
+            WHERE id = ?
+        ");
+        $stmtFact->execute([$creance['facture_id']]);
+
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
+}
+
+/**
+ * Rechercher les creances avec filtres.
+ */
+function db_creances_search_sql(PDO $pdo, array $filters = []): array {
+    $where = [];
+    $params = [];
+
+    if (!empty($filters['client_id'])) {
+        $where[] = 'c.client_id = ?';
+        $params[] = (int)$filters['client_id'];
+    }
+    if (!empty($filters['statut'])) {
+        $where[] = 'c.statut = ?';
+        $params[] = $filters['statut'];
+    }
+    if (!empty($filters['date_debut'])) {
+        $where[] = 'c.date_creation >= ?';
+        $params[] = $filters['date_debut'];
+    }
+    if (!empty($filters['date_fin'])) {
+        $where[] = 'c.date_creation <= ?';
+        $params[] = $filters['date_fin'] . ' 23:59:59';
+    }
+    if (!empty($filters['search'])) {
+        $where[] = '(cl.nom LIKE ? OR f.numero_facture LIKE ? OR cl.telephone LIKE ?)';
+        $s = '%' . $filters['search'] . '%';
+        $params[] = $s;
+        $params[] = $s;
+        $params[] = $s;
+    }
+
+    $whereClause = $where ? 'WHERE ' . implode(' AND ', $where) : '';
+    $limit = (int)($filters['limit'] ?? 50);
+    $offset = (int)($filters['offset'] ?? 0);
+
+    $sql = "SELECT c.*, f.numero_facture, f.total_ttc, cl.nom AS client_nom, cl.telephone AS client_telephone
+            FROM creances_clients c
+            JOIN factures f ON f.id = c.facture_id
+            JOIN clients cl ON cl.id = c.client_id
+            $whereClause
+            ORDER BY c.date_creation DESC
+            LIMIT $limit OFFSET $offset";
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Compter le total
+    $sqlCount = "SELECT COUNT(*) FROM creances_clients c
+                 JOIN factures f ON f.id = c.facture_id
+                 JOIN clients cl ON cl.id = c.client_id
+                 $whereClause";
+    $stmtCount = $pdo->prepare($sqlCount);
+    $stmtCount->execute($params);
+    $total = (int)$stmtCount->fetchColumn();
+
+    return ['results' => $results, 'total' => $total];
+}
+
+/**
+ * Rapport synthétique des creances.
+ */
+function db_credit_rapport(PDO $pdo, ?int $magasin_id = null): array {
+    $whereMag = '';
+    $params = [];
+    if ($magasin_id !== null && $magasin_id > 0) {
+        $whereMag = 'AND f.magasin_id = ?';
+        $params[] = $magasin_id;
+    }
+
+    $sql = "SELECT
+                COUNT(*) AS nb_creances,
+                COALESCE(SUM(c.montant_total), 0) AS total_montant,
+                COALESCE(SUM(c.montant_paye), 0) AS total_paye,
+                COALESCE(SUM(c.reste_a_payer), 0) AS total_reste,
+                SUM(CASE WHEN c.statut = 'En_Cours' THEN 1 ELSE 0 END) AS nb_en_cours,
+                SUM(CASE WHEN c.statut = 'Partiellement_Payee' THEN 1 ELSE 0 END) AS nb_partiel,
+                SUM(CASE WHEN c.statut = 'Payee' THEN 1 ELSE 0 END) AS nb_payee,
+                SUM(CASE WHEN c.statut = 'En_Souffrance' THEN 1 ELSE 0 END) AS nb_souffrance,
+                SUM(CASE WHEN c.date_echeance < CURDATE() AND c.statut IN ('En_Cours','Partiellement_Payee') THEN 1 ELSE 0 END) AS nb_retard,
+                SUM(CASE WHEN c.date_echeance < CURDATE() AND c.statut IN ('En_Cours','Partiellement_Payee') THEN c.reste_a_payer ELSE 0 END) AS montant_retard,
+                COUNT(DISTINCT c.client_id) AS nb_clients
+            FROM creances_clients c
+            JOIN factures f ON f.id = c.facture_id
+            WHERE 1=1 $whereMag";
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    return $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+}
+
+/**
+ * Mettre à jour le statut d'une creance en En_Souffrance (après depassement echeance).
+ */
+function db_creance_marquer_en_souffrance(PDO $pdo): int {
+    $stmt = $pdo->prepare("
+        UPDATE creances_clients
+        SET statut = 'En_Souffrance'
+        WHERE statut IN ('En_Cours','Partiellement_Payee')
+          AND date_echeance IS NOT NULL
+          AND date_echeance < CURDATE()
+    ");
+    $stmt->execute();
+    return $stmt->rowCount();
+}
 
 

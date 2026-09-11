@@ -4,7 +4,7 @@
  *
  * Couvre :
  *   * CRUD équipes (table `equipes`)
- *   * Affectation membres (table `user_equipes`)
+ *   * Affectation membres (table `equipe_membres`)
  *   * Affectation magasins/périmètre (table `equipe_magasins`)
  *   * Séparation rôle ≠ équipe ≠ périmètre
  */
@@ -22,7 +22,7 @@ final class EquipesTest extends PHPUnit\Framework\TestCase
     protected function setUp(): void
     {
         self::$pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
-        self::$pdo->exec('DELETE FROM user_equipes');
+        self::$pdo->exec('DELETE FROM equipe_membres');
         self::$pdo->exec('DELETE FROM equipe_magasins');
         self::$pdo->exec('DELETE FROM equipes');
         self::$pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
@@ -75,8 +75,12 @@ final class EquipesTest extends PHPUnit\Framework\TestCase
 
         db_equipe_delete(self::$pdo, $id);
 
-        $equipe = db_equipe_get(self::$pdo, $id);
-        $this->assertNull($equipe, 'Équipe désactivée ne doit plus apparaître');
+        $equipes_actives = db_equipes_list(self::$pdo);
+        $found = false;
+        foreach ($equipes_actives as $e) {
+            if ((int)$e['id'] === $id) { $found = true; break; }
+        }
+        $this->assertFalse($found, 'Équipe désactivée ne doit plus apparaître dans la liste active');
 
         $count = self::$pdo->query("SELECT COUNT(*) FROM equipes WHERE id = $id AND actif = 0")->fetchColumn();
         $this->assertEquals(1, $count, 'L\'équipe doit exister avec actif = 0');
@@ -217,12 +221,12 @@ final class EquipesTest extends PHPUnit\Framework\TestCase
 
         self::$pdo->exec("DELETE FROM utilisateurs WHERE login LIKE 'test_count_%'");
         $mdp = password_hash('test', PASSWORD_DEFAULT);
+        $role_id = self::$pdo->query("SELECT id FROM roles WHERE code = 'VENDEUR' LIMIT 1")->fetchColumn();
         for ($i = 0; $i < 3; $i++) {
-            self::$pdo->prepare("INSERT INTO utilisateurs (nom, login, mot_de_passe, role_id, actif) VALUES (?, ?, ?, 4, 1)")->execute(["Count $i", "test_count_$i", $mdp]);
-            db_equipe_set_membres(self::$pdo, $eq_id, array_merge(
-                array_column(db_equipe_membres(self::$pdo, $eq_id), 'id'),
-                [(int)self::$pdo->lastInsertId()]
-            ));
+            self::$pdo->prepare("INSERT INTO utilisateurs (nom, login, mot_de_passe, role_id, actif) VALUES (?, ?, ?, ?, 1)")->execute(["Count $i", "test_count_$i", $mdp, $role_id]);
+            $uid = (int)self::$pdo->lastInsertId();
+            $existing = array_column(db_equipe_membres(self::$pdo, $eq_id), 'id');
+            db_equipe_set_membres(self::$pdo, $eq_id, array_merge($existing, [$uid]));
         }
 
         $equipes = db_equipes_list(self::$pdo);

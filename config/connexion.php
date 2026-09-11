@@ -139,7 +139,7 @@ define('SECRET_URL_KEY', $secretKey);
 
 // Version applicative centralisée (affichée en pied de page / paramètres)
 if (!defined('APP_VERSION')) {
-    define('APP_VERSION', '2.0.0');
+    define('APP_VERSION', '2.7.0');
 }
 
 // ============================================================
@@ -377,12 +377,12 @@ function redirect(string $url): void {
  * Retourne le rôle de plus haut niveau si l'utilisateur en a plusieurs.
  */
 function user_role(): string {
-    global $pdo;
+    global $pdo, $_role_cache;
+    if (!isset($_role_cache)) $_role_cache = [];
     $uid = user_id();
     if ($uid <= 0) return $_SESSION['user']['role'] ?? '';
 
-    static $cache = [];
-    if (isset($cache[$uid])) return $cache[$uid];
+    if (isset($_role_cache[$uid])) return $_role_cache[$uid];
 
     try {
         $stmt = $pdo->prepare(
@@ -404,7 +404,7 @@ function user_role(): string {
                     $best = $r;
                 }
             }
-            $cache[$uid] = $best;
+            $_role_cache[$uid] = $best;
             return $best;
         }
     } catch (Throwable $e) {
@@ -413,7 +413,7 @@ function user_role(): string {
 
     // Fallback : ENUM legacy dans la session
     $fallback = $_SESSION['user']['role'] ?? '';
-    $cache[$uid] = $fallback;
+    $_role_cache[$uid] = $fallback;
     return $fallback;
 }
 
@@ -583,13 +583,13 @@ function user_has_role(string $role_code): bool {
  * Backward-compatible : si la table user_roles est vide, fallback sur utilisateurs.role.
  */
 function _load_user_permissions(): array {
-    global $pdo;
-    static $cache = [];
+    global $pdo, $_perm_cache;
+    if (!isset($_perm_cache)) $_perm_cache = [];
     
     $user_id = user_id();
     if ($user_id <= 0) return [];
     
-    if (isset($cache[$user_id])) return $cache[$user_id];
+    if (isset($_perm_cache[$user_id])) return $_perm_cache[$user_id];
     
     try {
         // Essayer d'abord le système multi-rôles (user_roles)
@@ -619,7 +619,7 @@ function _load_user_permissions(): array {
             }
         }
         
-        $cache[$user_id] = $perms;
+        $_perm_cache[$user_id] = $perms;
     } catch (Throwable $e) {
         // Table user_roles n'existe peut-être pas encore — fallback
         try {
@@ -632,17 +632,26 @@ function _load_user_permissions(): array {
                      WHERE rp.role_nom = :role'
                 );
                 $stmt3->execute([':role' => $role]);
-                $cache[$user_id] = $stmt3->fetchAll(PDO::FETCH_COLUMN);
+                $_perm_cache[$user_id] = $stmt3->fetchAll(PDO::FETCH_COLUMN);
             } else {
-                $cache[$user_id] = [];
+                $_perm_cache[$user_id] = [];
             }
         } catch (Throwable $e2) {
             error_log('Erreur chargement permissions: ' . $e2->getMessage());
-            $cache[$user_id] = [];
+            $_perm_cache[$user_id] = [];
         }
     }
     
-    return $cache[$user_id];
+    return $_perm_cache[$user_id];
+}
+
+/**
+ * Vider le cache des permissions (utile pour les tests).
+ */
+function reset_permissions_cache(): void {
+    global $_perm_cache, $_role_cache;
+    $_perm_cache = [];
+    $_role_cache = [];
 }
 
 /**
@@ -966,6 +975,9 @@ function build_nav_sections(int $nb_alertes_topbar = 0, int $nb_alertes_perempti
         $sec_ventes['items'][] = ['slug' => 'cloture', 'label' => 'Clôture de Caisse', 'icon' => 'bi-lock-fill', 'color' => 'clr-sky'];
         if (peut('clients_consulter')) {
             $sec_ventes['items'][] = ['slug' => 'clients', 'label' => 'Clients & fidélité', 'icon' => 'bi-people', 'color' => 'clr-sky'];
+        }
+        if (peut('credit_consulter')) {
+            $sec_ventes['items'][] = ['slug' => 'creances', 'label' => 'Créances (crédit)', 'icon' => 'bi-credit-card-2-front', 'color' => 'clr-sky'];
         }
     }
 

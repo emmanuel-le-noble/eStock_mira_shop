@@ -251,8 +251,8 @@ final class TraabiliteUsineTest extends PHPUnit\Framework\TestCase
         $this->assertSame(20, $rendement['quantite_perdue']);
         $this->assertSame(575.0, $rendement['total_matieres_consommees']);
 
-        // Rendement = 480 / 575 * 100 = 83.48%
-        $this->assertEqualsWithDelta(83.48, $rendement['rendement_pct'], 0.1);
+        // Rendement = 480 / (480 + 20) * 100 = 96.00%
+        $this->assertEqualsWithDelta(96.0, $rendement['rendement_pct'], 0.1);
     }
 
     public function testRendementParCategorie(): void

@@ -80,6 +80,8 @@ CREATE TABLE IF NOT EXISTS `clients` (
   `date_dernier_achat` datetime DEFAULT NULL,
   `anonymise` tinyint(1) NOT NULL DEFAULT '0',
   `date_anonymisation` datetime DEFAULT NULL,
+  `credit_autorise` tinyint(1) NOT NULL DEFAULT '0',
+  `limite_credit` decimal(12,2) NOT NULL DEFAULT '0.00',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_client_code_fidelite` (`code_fidelite`),
   KEY `idx_client_email` (`email`),
@@ -469,6 +471,8 @@ CREATE TABLE IF NOT EXISTS `factures` (
   `total_ttc` decimal(12,2) NOT NULL DEFAULT '0.00',
   `montant_paye` decimal(12,2) NOT NULL DEFAULT '0.00',
   `monnaie_rendue` decimal(12,2) NOT NULL DEFAULT '0.00',
+  `statut_paiement` enum('Payee','En_Attente','Partiellement_Payee','A_Credit','Annulee') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Payee',
+  `reste_a_payer` decimal(12,2) NOT NULL DEFAULT '0.00',
   `statut` enum('Payee','Annulee') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Payee',
   `statut_transmission` enum('non_transmise','transmise','non_applicable') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'non_transmise',
   `hash_chaine` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -505,8 +509,8 @@ CREATE TABLE IF NOT EXISTS `lignes_facture` (
   `quantite_poids` decimal(10,3) DEFAULT NULL,
   `prix_unitaire` decimal(12,2) NOT NULL DEFAULT '0.00',
   `prix_fournisseur_ref` decimal(12,2) DEFAULT NULL,
-  `fournisseur_id_ref` int unsigned DEFAULT NULL,
-  `tranche_tarifaire_id` int unsigned DEFAULT NULL,
+  `fournisseur_id_ref` int DEFAULT NULL,
+  `tranche_tarifaire_id` int DEFAULT NULL,
   `prix_original` decimal(12,2) DEFAULT NULL,
   `remise_pct` decimal(5,2) DEFAULT NULL,
   `taux_tva` decimal(5,2) DEFAULT NULL,
@@ -530,6 +534,50 @@ CREATE TABLE IF NOT EXISTS `paiements_facture` (
   KEY `idx_pf_mode` (`mode_paiement`),
   CONSTRAINT `chk_paiement_montant` CHECK (`montant` >= 0)
 ) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+DROP TABLE IF EXISTS `creances_clients`;
+CREATE TABLE IF NOT EXISTS `creances_clients` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `facture_id` int NOT NULL,
+  `client_id` int NOT NULL,
+  `montant_total` decimal(12,2) NOT NULL DEFAULT '0.00',
+  `montant_paye` decimal(12,2) NOT NULL DEFAULT '0.00',
+  `reste_a_payer` decimal(12,2) NOT NULL DEFAULT '0.00',
+  `statut` enum('En_Cours','Partiellement_Payee','Payee','Annulee','En_Souffrance') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'En_Cours',
+  `date_echeance` date DEFAULT NULL,
+  `date_creation` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `date_modification` datetime DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  `notes` text COLLATE utf8mb4_unicode_ci,
+  PRIMARY KEY (`id`),
+  KEY `idx_creance_facture` (`facture_id`),
+  KEY `idx_creance_client` (`client_id`),
+  KEY `idx_creance_statut` (`statut`),
+  KEY `idx_creance_echeance` (`date_echeance`),
+  CONSTRAINT `fk_creance_facture` FOREIGN KEY (`facture_id`) REFERENCES `factures` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `fk_creance_client` FOREIGN KEY (`client_id`) REFERENCES `clients` (`id`) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+DROP TABLE IF EXISTS `paiements_credit`;
+CREATE TABLE IF NOT EXISTS `paiements_credit` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `creance_id` int NOT NULL,
+  `montant` decimal(12,2) NOT NULL DEFAULT '0.00',
+  `mode_paiement` enum('Especes','Mobile_Money','Carte_Bancaire','Virement','Autre') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Especes',
+  `reference` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `date_paiement` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `utilisateur_id` int DEFAULT NULL,
+  `notes` text COLLATE utf8mb4_unicode_ci,
+  PRIMARY KEY (`id`),
+  KEY `idx_pc_creance` (`creance_id`),
+  KEY `idx_pc_date` (`date_paiement`),
+  CONSTRAINT `fk_pc_creance` FOREIGN KEY (`creance_id`) REFERENCES `creances_clients` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `fk_pc_user` FOREIGN KEY (`utilisateur_id`) REFERENCES `utilisateurs` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `chk_pc_montant` CHECK (`montant` > 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
 
@@ -645,7 +693,7 @@ CREATE TABLE IF NOT EXISTS `receptions` (
   `commande_id` int NOT NULL,
   `fournisseur_id` int NOT NULL,
   `magasin_id` int NOT NULL,
-  `utilisateur_id` int unsigned DEFAULT NULL,
+  `utilisateur_id` int NULL,
   `statut` enum('Brouillon','Validee','Annulee') NOT NULL DEFAULT 'Brouillon',
   `date_reception` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `commentaire` text NULL,
@@ -699,7 +747,7 @@ CREATE TABLE IF NOT EXISTS `pertes_fournisseur` (
   `article_id` int NOT NULL,
   `fournisseur_id` int NOT NULL,
   `magasin_id` int NOT NULL,
-  `utilisateur_id` int unsigned NULL,
+  `utilisateur_id` int NULL,
   `quantite` int unsigned NOT NULL DEFAULT '0',
   `motif` enum('endommage','manquant','expire','non_conforme','casse_livraison','erreur_fournisseur','autre') NOT NULL DEFAULT 'autre',
   `commentaire` text NULL,
@@ -765,14 +813,14 @@ CREATE TABLE IF NOT EXISTS `regles_promotions` (
 DROP TABLE IF EXISTS `fournisseur_prix_historique`;
 CREATE TABLE IF NOT EXISTS `fournisseur_prix_historique` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
-  `article_id` int unsigned NOT NULL,
+  `article_id` int NOT NULL,
   `fournisseur_id` int NOT NULL,
   `prix_achat` decimal(12,2) NOT NULL DEFAULT '0.00',
   `devise` varchar(3) NOT NULL DEFAULT 'XOF',
   `est_actif` tinyint(1) NOT NULL DEFAULT '1',
   `source` enum('commande','reception','manuelle') NOT NULL DEFAULT 'manuelle',
   `reference_id` int unsigned NULL,
-  `utilisateur_id` int unsigned NULL,
+  `utilisateur_id` int NULL,
   `date_debut` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `date_fin` datetime NULL,
   `date_creation` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -791,8 +839,8 @@ DROP TABLE IF EXISTS `tranches_tarifaires`;
 CREATE TABLE IF NOT EXISTS `tranches_tarifaires` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
   `nom` varchar(150) NOT NULL,
-  `article_id` int unsigned NULL,
-  `categorie_id` int unsigned NULL,
+  `article_id` int NULL,
+  `categorie_id` int NULL,
   `qte_min` int unsigned NOT NULL DEFAULT '1',
   `qte_max` int unsigned NULL,
   `mode_calcul` enum('majoration_pct','marge_pct','prix_fixe') NOT NULL DEFAULT 'majoration_pct',
@@ -1051,6 +1099,20 @@ CREATE TABLE IF NOT EXISTS `stock_matieres_premieres` (
 
 -- --------------------------------------------------------
 
+DROP TABLE IF EXISTS `stock_produits_finis_usine`;
+CREATE TABLE IF NOT EXISTS `stock_produits_finis_usine` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `article_id` int NOT NULL,
+  `quantite` int NOT NULL DEFAULT 0,
+  `production_id` int DEFAULT NULL,
+  `date_modification` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_spfu_article` (`article_id`),
+  CONSTRAINT `fk_spfu_article` FOREIGN KEY (`article_id`) REFERENCES `articles`(`id`) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
 DROP TABLE IF EXISTS `categories_pertes_production`;
 CREATE TABLE IF NOT EXISTS `categories_pertes_production` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
@@ -1169,7 +1231,7 @@ CREATE TABLE IF NOT EXISTS `production_pertes` (
   `id` int NOT NULL AUTO_INCREMENT,
   `production_id` int NOT NULL,
   `type_perte` enum('matiere_premiere','produit_non_conforme','casse','defaut_machine','erreur_operateur','rebut','autre') NOT NULL,
-  `categorie_perte_id` int DEFAULT NULL,
+  `categorie_perte_id` int unsigned DEFAULT NULL,
   `article_id` int NOT NULL,
   `quantite` decimal(12,4) NOT NULL DEFAULT 0,
   `unite` varchar(20) NOT NULL DEFAULT 'KG',
@@ -1297,7 +1359,7 @@ CREATE TABLE IF NOT EXISTS `notifications` (
   KEY `idx_notif_cible` (`cible_role`, `cible_utilisateur_id`),
   KEY `idx_notif_date` (`date_creation`),
   KEY `idx_notif_statut` (`statut`),
-  KEY `idx_notif_type` (`type_notif`),
+  KEY `idx_notif_type_notif` (`type_notif`),
   KEY `idx_notif_equipe` (`cible_equipe_id`),
   KEY `idx_notif_user` (`cible_utilisateur_id`),
   CONSTRAINT `fk_notif_user` FOREIGN KEY (`cible_utilisateur_id`) REFERENCES `utilisateurs`(`id`) ON DELETE CASCADE ON UPDATE CASCADE
@@ -1360,12 +1422,14 @@ CREATE TRIGGER `trg_factures_immutable_update` BEFORE UPDATE ON `factures` FOR E
     IF OLD.numero_facture <> NEW.numero_facture THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'INTEGRITE: le numero de facture est immuable';
     END IF;
-    IF OLD.total_ht <> NEW.total_ht OR OLD.total_ttc <> NEW.total_ttc
-       OR OLD.montant_paye <> NEW.montant_paye OR OLD.monnaie_rendue <> NEW.monnaie_rendue THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'INTEGRITE: les montants d une facture validee sont immuables';
-    END IF;
-    IF OLD.hash_chaine IS NOT NULL AND OLD.hash_chaine <> NEW.hash_chaine THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'INTEGRITE: le hash de chaine d une facture est immuable';
+    IF OLD.hash_chaine IS NOT NULL THEN
+        IF OLD.total_ht <> NEW.total_ht OR OLD.total_ttc <> NEW.total_ttc
+           OR OLD.montant_paye <> NEW.montant_paye OR OLD.monnaie_rendue <> NEW.monnaie_rendue THEN
+            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'INTEGRITE: les montants d une facture validee sont immuables';
+        END IF;
+        IF OLD.hash_chaine <> NEW.hash_chaine THEN
+            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'INTEGRITE: le hash de chaine d une facture est immuable';
+        END IF;
     END IF;
     IF OLD.statut = 'Payee' AND NEW.statut NOT IN ('Payee', 'Annulee') THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'INTEGRITE: transition de statut invalide';
@@ -1442,11 +1506,53 @@ INSERT IGNORE INTO `user_roles` (`user_id`, `role_id`, `date_debut`, `actif`) VA
 
 -- Permissions
 INSERT IGNORE INTO `permissions` (`cle_permission`, `description`, `categorie`) VALUES
+  ('stock_consulter', 'Consulter les stocks', 'Stock'),
+  ('stock_gerer', 'Gerer les entrees/sorties de stock', 'Stock'),
+  ('stock_transfert', 'Effectuer des transferts inter-magasins', 'Stock'),
+  ('articles_consulter', 'Consulter les articles', 'Articles'),
+  ('articles_gerer', 'Creer / modifier / supprimer les articles', 'Articles'),
   ('clients_consulter', 'Consulter la fiche client', 'Clients'),
   ('clients_gerer', 'Creer / modifier / supprimer les clients', 'Clients'),
   ('conformite_archives', 'Gerer les archives de conformite', 'Conformite'),
+  ('conformite_export_fec', 'Exporter le FEC', 'Conformite'),
   ('conformite_export_syscohada', 'Exporter en format SYSCOHADA', 'Conformite'),
   ('articles_modifier', 'Modifier les articles via l''API', 'Articles'),
+  ('caisse_gerer', 'Gerer la caisse / POS', 'Vente'),
+  ('facturation_consulter', 'Consulter les factures', 'Facturation'),
+  ('facturation_gerer', 'Creer / modifier les factures', 'Facturation'),
+  ('cloture_gerer', 'Gerer les clotures de caisse', 'Facturation'),
+  ('roles_consulter', 'Consulter les roles', 'RBAC'),
+  ('roles_gerer', 'Gerer les roles et permissions', 'RBAC'),
+  ('permissions_gerer', 'Gerer les permissions', 'RBAC'),
+  ('magasins_consulter', 'Consulter les magasins', 'Magasins'),
+  ('magasins_gerer', 'Gerer les magasins', 'Magasins'),
+  ('parametres_gerer', 'Gerer les parametres', 'Administration'),
+  ('audit_consulter', 'Consulter le journal d''audit', 'Administration'),
+  ('audit_gerer', 'Gerer le journal d''audit', 'Administration'),
+  ('statistiques_consulter', 'Consulter les statistiques', 'Statistiques'),
+  ('achats_consulter', 'Consulter les achats', 'Achats'),
+  ('achats_gerer', 'Gerer les achats', 'Achats'),
+  ('achats_valider', 'Valider les achats', 'Achats'),
+  ('retours_consulter', 'Consulter les retours', 'Retours'),
+  ('retours_gerer', 'Gerer les retours', 'Retours'),
+  ('promotions_consulter', 'Consulter les promotions', 'Promotions'),
+  ('promotions_gerer', 'Gerer les promotions', 'Promotions'),
+  ('inventaire_consulter', 'Consulter l''inventaire', 'Inventaire'),
+  ('inventaire_gerer', 'Gerer l''inventaire', 'Inventaire'),
+  ('depenses_consulter', 'Consulter les depenses', 'Depenses'),
+  ('depenses_gerer', 'Gerer les depenses', 'Depenses'),
+  ('tarification_consulter', 'Consulter la tarification', 'Tarification'),
+  ('tarification_gerer', 'Gerer la tarification', 'Tarification'),
+  ('prix_fournisseur_consulter', 'Consulter les prix fournisseur', 'Prix'),
+  ('prix_fournisseur_gerer', 'Gerer les prix fournisseur', 'Prix'),
+  ('exports_consulter', 'Consulter les exports', 'Exports'),
+  ('suggestions_consulter', 'Consulter les suggestions d''achat', 'Suggestions'),
+  ('impression_consulter', 'Imprimer les documents', 'Impression'),
+  ('ventes_consulter', 'Consulter les ventes', 'Vente'),
+  ('transferts_consulter', 'Consulter les transferts', 'Transferts'),
+  ('transferts_gerer', 'Gerer les transferts', 'Transferts'),
+  ('utilisateurs_consulter', 'Consulter les utilisateurs', 'Administration'),
+  ('utilisateurs_gerer', 'Gerer les utilisateurs', 'Administration'),
   ('usine_consulter', 'Consulter le module usine', 'Usine'),
   ('usine_gerer', 'Gerer les parametres usine', 'Usine'),
   ('production_consulter', 'Consulter les productions', 'Production'),
@@ -1476,7 +1582,23 @@ INSERT IGNORE INTO `permissions` (`cle_permission`, `description`, `categorie`) 
   ('absences_consulter', 'Consulter les absences', 'Personnel'),
   ('stock_usine_consulter', 'Consulter le stock usine', 'Usine'),
   ('transferts_magasins_gerer', 'Gerer les transferts entre magasins', 'Transferts'),
-  ('stock_usine_transfert', 'Transfert depuis l''usine', 'Usine');
+  ('stock_usine_transfert', 'Transfert depuis l''usine', 'Usine'),
+  ('machines_demarrer', 'Demarrer / arreter les machines', 'Usine'),
+  ('horaires_consulter', 'Consulter les horaires de travail', 'Usine'),
+  ('horaires_gerer', 'Gerer les horaires de travail', 'Usine'),
+  ('notifications_usine_consulter', 'Consulter les notifications usine', 'Usine'),
+  ('notifications_usine_gerer', 'Gerer les notifications usine', 'Usine'),
+  ('rendement_consulter', 'Consulter les rendements de production', 'Usine'),
+  ('categories_pertes_consulter', 'Consulter les categories de pertes', 'Usine'),
+  ('categories_pertes_gerer', 'Gerer les categories de pertes', 'Usine'),
+  ('credit_consulter', 'Consulter les creances et soldes clients', 'Credit'),
+  ('credit_creer', 'Creer une vente a credit', 'Credit'),
+  ('credit_paiement_creer', 'Enregistrer un remboursement sur creance', 'Credit'),
+  ('credit_paiement_consulter', 'Consulter l''historique des remboursements', 'Credit'),
+  ('credit_modifier', 'Modifier les conditions de credit (limite, echeance)', 'Credit'),
+  ('credit_annuler', 'Annuler une creance', 'Credit'),
+  ('credit_rapport', 'Consulter les rapports de creances', 'Credit'),
+  ('credit_override_limit', 'Depasser la limite de credit autorisee', 'Credit');
 
 -- Role permissions
 INSERT IGNORE INTO `role_permissions` (`role_nom`, `permission_id`)
@@ -1489,24 +1611,29 @@ SELECT 'ADMIN', id FROM `permissions` WHERE `cle_permission` IN
    'notifications_consulter','notifications_marquer_lu','notifications_supprimer',
    'receptions_consulter','receptions_gerer','receptions_valider','pertes_consulter','pertes_gerer',
    'equipes_consulter','equipes_gerer','retards_consulter','absences_consulter',
-   'stock_usine_consulter','transferts_magasins_gerer','stock_usine_transfert');
+   'stock_usine_consulter','transferts_magasins_gerer','stock_usine_transfert',
+   'credit_consulter','credit_modifier','credit_rapport','credit_override_limit');
 INSERT IGNORE INTO `role_permissions` (`role_nom`, `permission_id`)
 SELECT 'MAGASINIER', id FROM `permissions` WHERE `cle_permission` IN
   ('clients_consulter','clients_gerer','articles_modifier',
    'receptions_consulter','receptions_gerer','receptions_valider','receptions_creer',
    'pertes_consulter','pertes_gerer','pertes_creer');
 INSERT IGNORE INTO `role_permissions` (`role_nom`, `permission_id`)
-SELECT 'VENDEUR', id FROM `permissions` WHERE `cle_permission` IN ('clients_consulter');
+SELECT 'VENDEUR', id FROM `permissions` WHERE `cle_permission` IN ('clients_consulter','credit_consulter','credit_creer','credit_paiement_creer');
 INSERT IGNORE INTO `role_permissions` (`role_nom`, `permission_id`)
 SELECT 'CHEF_EQUIPE', id FROM `permissions` WHERE `cle_permission` IN
   ('clients_consulter','clients_gerer','conformite_archives','conformite_export_syscohada','articles_modifier',
-   'equipes_consulter','equipes_gerer','retards_consulter','absences_consulter');
+   'equipes_consulter','equipes_gerer','retards_consulter','absences_consulter',
+   'credit_consulter','credit_creer','credit_paiement_creer');
 INSERT IGNORE INTO `role_permissions` (`role_nom`, `permission_id`)
 SELECT 'CHEF_EQUIPE_USINE', id FROM `permissions` WHERE `cle_permission` IN
   ('usine_consulter','production_consulter','production_gerer','production_cloturer',
-   'machines_consulter','machines_gerer','machines_historique',
+   'machines_consulter','machines_gerer','machines_historique','machines_demarrer',
    'personnel_consulter','personnel_gerer','presence_consulter','presence_gerer',
-   'transfert_usine_gerer','stock_usine_consulter','stock_usine_transfert');
+   'transfert_usine_gerer','stock_usine_consulter','stock_usine_transfert',
+   'horaires_consulter','horaires_gerer',
+   'notifications_usine_consulter','notifications_usine_gerer',
+   'rendement_consulter','categories_pertes_consulter','categories_pertes_gerer');
 
 -- Categories matières premières
 INSERT IGNORE INTO `categories_matieres_premieres` (`nom`, `description`) VALUES

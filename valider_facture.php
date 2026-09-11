@@ -37,6 +37,7 @@ $totalTtcPost= (float)($_POST['total_ttc'] ?? 0);
 $montantPaye = (float)($_POST['montant_paye'] ?? 0);
 $clientId    = (int)($_POST['client_id'] ?? 0);
 $pointsUtilises = (int)($_POST['points_utilises'] ?? 0);
+$modeVente   = input_string($_POST['mode_vente'] ?? 'comptoir');
 
 // Multi-paiements : parser le JSON envoyé par caisse.js
 $paiementsJsonRaw = input_string($_POST['paiements_json'] ?? '[]');
@@ -209,13 +210,32 @@ try {
         throw new RuntimeException('Le total TTC transmis par la caisse ne correspond pas au calculé (remise fidélité incluse).');
     }
 
-    if ($montantPaye < round($totalTtcCalc, 2)) {
-        throw new RuntimeException('Le montant payé est insuffisant.');
+    $isCredit = ($modeVente === 'credit');
+    if ($isCredit) {
+        // Validation credit : client obligatoire et autorise
+        if ($clientId <= 0) {
+            throw new RuntimeException('La selection d\'un client est obligatoire pour une vente a credit.');
+        }
+        $clientInfo = db_client_get_by_id($pdo, $clientId);
+        if (!$clientInfo || !$clientInfo['credit_autorise']) {
+            throw new RuntimeException('Ce client n\'est pas autorise pour les achats a credit.');
+        }
+        $montantCredit = round($totalTtcCalc - $montantPaye, 2);
+        if ($montantCredit > 0) {
+            $limitCheck = db_credit_check_limit($pdo, $clientId, $montantCredit);
+            if (!$limitCheck['ok'] && !peut('credit_override_limit')) {
+                throw new RuntimeException($limitCheck['message']);
+            }
+        }
+    } else {
+        if ($montantPaye < round($totalTtcCalc, 2)) {
+            throw new RuntimeException('Le montant paye est insuffisant.');
+        }
     }
-    $monnaieRendue = max(0.0, $montantPaye - $totalTtcCalc);
+    $monnaieRendue = $isCredit ? 0.0 : max(0.0, $montantPaye - $totalTtcCalc);
 
     // ---- 3) Insertion de la facture ----
-    $factureId = db_facture_insert($pdo, [
+    $factureData = [
         'numero_facture' => $numero,
         'utilisateur_id' => user_courant()['id'] ?? null,
         'total_ht'       => round($totalHt, 2),
@@ -226,9 +246,15 @@ try {
         'magasin_id'     => $magasin_id,
         'remise_fidelite'=> $loyautes !== null ? $loyautes['remise'] : 0.0,
         'points_utilises'=> $loyautes !== null ? $loyautes['points'] : 0,
-    ]);
+    ];
+    if ($isCredit) {
+        $reste = round($totalTtcCalc - $montantPaye, 2);
+        $factureData['statut_paiement'] = $reste > 0 ? 'En_Attente' : 'Payee';
+        $factureData['reste_a_payer'] = $reste;
+    }
+    $factureId = db_facture_insert($pdo, $factureData);
 
-    if ($loyautes !== null) {
+    if ($loyautes !== null || $clientId > 0) {
         $pdo->prepare("UPDATE factures SET client_id = ? WHERE id = ?")
             ->execute([$clientId, $factureId]);
     }
@@ -273,6 +299,12 @@ try {
     // ---- 6) Enregistrer les paiements multi-modes ----
     if (!empty($paiementsList)) {
         db_paiements_insert($pdo, $factureId, $paiementsList);
+    }
+
+    // ---- 6b) Creer la creance si vente a credit ----
+    if ($isCredit && $reste > 0) {
+        $echeance = date('Y-m-d', strtotime('+30 days'));
+        db_creance_insert($pdo, $factureId, $clientId, round($totalTtcCalc, 2), $echeance, null);
     }
 
     // ---- 7) Chaînage cryptographique de la facture (après lignes + paiements) ----

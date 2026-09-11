@@ -259,7 +259,7 @@ CREATE TABLE IF NOT EXISTS `production_pertes` (
   `id` int NOT NULL AUTO_INCREMENT,
   `production_id` int NOT NULL,
   `type_perte` enum('matiere_premiere','produit_non_conforme','casse','defaut_machine','erreur_operateur','rebut','autre') NOT NULL,
-  `categorie_perte_id` int DEFAULT NULL,
+  `categorie_perte_id` int unsigned DEFAULT NULL,
   `article_id` int NOT NULL,
   `quantite` decimal(12,4) NOT NULL DEFAULT 0,
   `unite` varchar(20) NOT NULL DEFAULT 'KG',
@@ -368,7 +368,7 @@ CREATE TABLE IF NOT EXISTS `notifications` (
   KEY `idx_notif_cible` (`cible_role`, `cible_utilisateur_id`),
   KEY `idx_notif_date` (`date_creation`),
   KEY `idx_notif_statut` (`statut`),
-  KEY `idx_notif_type` (`type_notif`),
+  KEY `idx_notif_type_notif` (`type_notif`),
   KEY `idx_notif_equipe` (`cible_equipe_id`),
   KEY `idx_notif_user` (`cible_utilisateur_id`),
   CONSTRAINT `fk_notif_user` FOREIGN KEY (`cible_utilisateur_id`) REFERENCES `utilisateurs`(`id`) ON DELETE CASCADE ON UPDATE CASCADE
@@ -390,14 +390,14 @@ CREATE TABLE IF NOT EXISTS `horaires_travail` (
 
 CREATE TABLE IF NOT EXISTS `fournisseur_prix_historique` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
-  `article_id` int unsigned NOT NULL,
+  `article_id` int NOT NULL,
   `fournisseur_id` int NOT NULL,
   `prix_achat` decimal(12,2) NOT NULL DEFAULT '0.00',
   `devise` varchar(3) NOT NULL DEFAULT 'XOF',
   `est_actif` tinyint(1) NOT NULL DEFAULT '1',
   `source` enum('commande','reception','manuelle') NOT NULL DEFAULT 'manuelle',
   `reference_id` int unsigned NULL,
-  `utilisateur_id` int unsigned NULL,
+  `utilisateur_id` int NULL,
   `date_debut` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `date_fin` datetime NULL,
   `date_creation` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -413,8 +413,8 @@ CREATE TABLE IF NOT EXISTS `fournisseur_prix_historique` (
 CREATE TABLE IF NOT EXISTS `tranches_tarifaires` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
   `nom` varchar(150) NOT NULL,
-  `article_id` int unsigned NULL,
-  `categorie_id` int unsigned NULL,
+  `article_id` int NULL,
+  `categorie_id` int NULL,
   `qte_min` int unsigned NOT NULL DEFAULT '1',
   `qte_max` int unsigned NULL,
   `mode_calcul` enum('majoration_pct','marge_pct','prix_fixe') NOT NULL DEFAULT 'majoration_pct',
@@ -439,7 +439,7 @@ CREATE TABLE IF NOT EXISTS `receptions` (
   `commande_id` int NOT NULL,
   `fournisseur_id` int NOT NULL,
   `magasin_id` int NOT NULL,
-  `utilisateur_id` int unsigned NULL,
+  `utilisateur_id` int NULL,
   `statut` enum('Brouillon','Validee','Annulee') NOT NULL DEFAULT 'Brouillon',
   `date_reception` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `commentaire` text NULL,
@@ -487,7 +487,7 @@ CREATE TABLE IF NOT EXISTS `pertes_fournisseur` (
   `article_id` int NOT NULL,
   `fournisseur_id` int NOT NULL,
   `magasin_id` int NOT NULL,
-  `utilisateur_id` int unsigned NULL,
+  `utilisateur_id` int NULL,
   `quantite` int unsigned NOT NULL DEFAULT '0',
   `motif` enum('endommage','manquant','expire','non_conforme','casse_livraison','erreur_fournisseur','autre') NOT NULL DEFAULT 'autre',
   `commentaire` text NULL,
@@ -608,7 +608,7 @@ PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
 
 -- 2.8 production_pertes : categorie_perte_id
 SET @c = (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='production_pertes' AND COLUMN_NAME='categorie_perte_id');
-SET @sql = IF(@c=0, "ALTER TABLE `production_pertes` ADD COLUMN `categorie_perte_id` int DEFAULT NULL AFTER `type_perte`", 'SELECT 1');
+SET @sql = IF(@c=0, "ALTER TABLE `production_pertes` ADD COLUMN `categorie_perte_id` int unsigned DEFAULT NULL AFTER `type_perte`", 'SELECT 1');
 PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
 
 -- 2.9 utilisateurs : role_id (remplace ENUM role)
@@ -631,11 +631,11 @@ SET @sql = IF(@c=0, "ALTER TABLE `lignes_facture` ADD COLUMN `prix_fournisseur_r
 PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
 
 SET @c = (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='lignes_facture' AND COLUMN_NAME='fournisseur_id_ref');
-SET @sql = IF(@c=0, "ALTER TABLE `lignes_facture` ADD COLUMN `fournisseur_id_ref` int unsigned DEFAULT NULL AFTER `prix_fournisseur_ref`", 'SELECT 1');
+SET @sql = IF(@c=0, "ALTER TABLE `lignes_facture` ADD COLUMN `fournisseur_id_ref` int DEFAULT NULL AFTER `prix_fournisseur_ref`", 'SELECT 1');
 PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
 
 SET @c = (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='lignes_facture' AND COLUMN_NAME='tranche_tarifaire_id');
-SET @sql = IF(@c=0, "ALTER TABLE `lignes_facture` ADD COLUMN `tranche_tarifaire_id` int unsigned DEFAULT NULL AFTER `fournisseur_id_ref`", 'SELECT 1');
+SET @sql = IF(@c=0, "ALTER TABLE `lignes_facture` ADD COLUMN `tranche_tarifaire_id` int DEFAULT NULL AFTER `fournisseur_id_ref`", 'SELECT 1');
 PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
 
 -- 2.12 tranches_tarifaires : source_cout
@@ -900,11 +900,53 @@ INSERT IGNORE INTO `tranches_tarifaires` (`nom`, `qte_min`, `qte_max`, `mode_cal
 
 -- 8.7 Permissions
 INSERT IGNORE INTO `permissions` (`cle_permission`, `description`, `categorie`) VALUES
+  ('stock_consulter', 'Consulter les stocks', 'Stock'),
+  ('stock_gerer', 'Gerer les entrees/sorties de stock', 'Stock'),
+  ('stock_transfert', 'Effectuer des transferts inter-magasins', 'Stock'),
+  ('articles_consulter', 'Consulter les articles', 'Articles'),
+  ('articles_gerer', 'Creer / modifier / supprimer les articles', 'Articles'),
   ('clients_consulter', 'Consulter la fiche client', 'Clients'),
   ('clients_gerer', 'Creer / modifier / supprimer les clients', 'Clients'),
   ('conformite_archives', 'Gerer les archives de conformite', 'Conformite'),
+  ('conformite_export_fec', 'Exporter le FEC', 'Conformite'),
   ('conformite_export_syscohada', 'Exporter en format SYSCOHADA', 'Conformite'),
   ('articles_modifier', 'Modifier les articles via l''API', 'Articles'),
+  ('caisse_gerer', 'Gerer la caisse / POS', 'Vente'),
+  ('facturation_consulter', 'Consulter les factures', 'Facturation'),
+  ('facturation_gerer', 'Creer / modifier les factures', 'Facturation'),
+  ('cloture_gerer', 'Gerer les clotures de caisse', 'Facturation'),
+  ('roles_consulter', 'Consulter les roles', 'RBAC'),
+  ('roles_gerer', 'Gerer les roles et permissions', 'RBAC'),
+  ('permissions_gerer', 'Gerer les permissions', 'RBAC'),
+  ('magasins_consulter', 'Consulter les magasins', 'Magasins'),
+  ('magasins_gerer', 'Gerer les magasins', 'Magasins'),
+  ('parametres_gerer', 'Gerer les parametres', 'Administration'),
+  ('audit_consulter', 'Consulter le journal d''audit', 'Administration'),
+  ('audit_gerer', 'Gerer le journal d''audit', 'Administration'),
+  ('statistiques_consulter', 'Consulter les statistiques', 'Statistiques'),
+  ('achats_consulter', 'Consulter les achats', 'Achats'),
+  ('achats_gerer', 'Gerer les achats', 'Achats'),
+  ('achats_valider', 'Valider les achats', 'Achats'),
+  ('retours_consulter', 'Consulter les retours', 'Retours'),
+  ('retours_gerer', 'Gerer les retours', 'Retours'),
+  ('promotions_consulter', 'Consulter les promotions', 'Promotions'),
+  ('promotions_gerer', 'Gerer les promotions', 'Promotions'),
+  ('inventaire_consulter', 'Consulter l''inventaire', 'Inventaire'),
+  ('inventaire_gerer', 'Gerer l''inventaire', 'Inventaire'),
+  ('depenses_consulter', 'Consulter les depenses', 'Depenses'),
+  ('depenses_gerer', 'Gerer les depenses', 'Depenses'),
+  ('tarification_consulter', 'Consulter la tarification', 'Tarification'),
+  ('tarification_gerer', 'Gerer la tarification', 'Tarification'),
+  ('prix_fournisseur_consulter', 'Consulter les prix fournisseur', 'Prix'),
+  ('prix_fournisseur_gerer', 'Gerer les prix fournisseur', 'Prix'),
+  ('exports_consulter', 'Consulter les exports', 'Exports'),
+  ('suggestions_consulter', 'Consulter les suggestions d''achat', 'Suggestions'),
+  ('impression_consulter', 'Imprimer les documents', 'Impression'),
+  ('ventes_consulter', 'Consulter les ventes', 'Vente'),
+  ('transferts_consulter', 'Consulter les transferts', 'Transferts'),
+  ('transferts_gerer', 'Gerer les transferts', 'Transferts'),
+  ('utilisateurs_consulter', 'Consulter les utilisateurs', 'Administration'),
+  ('utilisateurs_gerer', 'Gerer les utilisateurs', 'Administration'),
   ('usine_consulter', 'Consulter le module usine', 'Usine'),
   ('usine_gerer', 'Gerer les parametres usine', 'Usine'),
   ('production_consulter', 'Consulter les productions', 'Production'),
@@ -934,7 +976,23 @@ INSERT IGNORE INTO `permissions` (`cle_permission`, `description`, `categorie`) 
   ('absences_consulter', 'Consulter les absences', 'Personnel'),
   ('stock_usine_consulter', 'Consulter le stock usine', 'Usine'),
   ('transferts_magasins_gerer', 'Gerer les transferts entre magasins', 'Transferts'),
-  ('stock_usine_transfert', 'Transfert depuis l''usine', 'Usine');
+  ('stock_usine_transfert', 'Transfert depuis l''usine', 'Usine'),
+  ('machines_demarrer', 'Demarrer / arreter les machines', 'Usine'),
+  ('horaires_consulter', 'Consulter les horaires de travail', 'Usine'),
+  ('horaires_gerer', 'Gerer les horaires de travail', 'Usine'),
+  ('notifications_usine_consulter', 'Consulter les notifications usine', 'Usine'),
+  ('notifications_usine_gerer', 'Gerer les notifications usine', 'Usine'),
+  ('rendement_consulter', 'Consulter les rendements de production', 'Usine'),
+  ('categories_pertes_consulter', 'Consulter les categories de pertes', 'Usine'),
+  ('categories_pertes_gerer', 'Gerer les categories de pertes', 'Usine'),
+  ('credit_consulter', 'Consulter les creances et soldes clients', 'Credit'),
+  ('credit_creer', 'Creer une vente a credit', 'Credit'),
+  ('credit_paiement_creer', 'Enregistrer un remboursement sur creance', 'Credit'),
+  ('credit_paiement_consulter', 'Consulter l''historique des remboursements', 'Credit'),
+  ('credit_modifier', 'Modifier les conditions de credit (limite, echeance)', 'Credit'),
+  ('credit_annuler', 'Annuler une creance', 'Credit'),
+  ('credit_rapport', 'Consulter les rapports de creances', 'Credit'),
+  ('credit_override_limit', 'Depasser la limite de credit autorisee', 'Credit');
 
 -- 8.8 Permissions rôles (après normalisation)
 INSERT IGNORE INTO `role_permissions` (`role_nom`, `permission_id`)
@@ -947,24 +1005,134 @@ SELECT 'ADMIN', id FROM `permissions` WHERE `cle_permission` IN
    'notifications_consulter','notifications_marquer_lu','notifications_supprimer',
    'receptions_consulter','receptions_gerer','receptions_valider','pertes_consulter','pertes_gerer',
    'equipes_consulter','equipes_gerer','retards_consulter','absences_consulter',
-   'stock_usine_consulter','transferts_magasins_gerer','stock_usine_transfert');
+   'stock_usine_consulter','transferts_magasins_gerer','stock_usine_transfert',
+   'credit_consulter','credit_modifier','credit_rapport','credit_override_limit');
 INSERT IGNORE INTO `role_permissions` (`role_nom`, `permission_id`)
 SELECT 'MAGASINIER', id FROM `permissions` WHERE `cle_permission` IN
   ('clients_consulter','clients_gerer','articles_modifier',
    'receptions_consulter','receptions_gerer','receptions_valider','receptions_creer',
    'pertes_consulter','pertes_gerer','pertes_creer');
 INSERT IGNORE INTO `role_permissions` (`role_nom`, `permission_id`)
-SELECT 'VENDEUR', id FROM `permissions` WHERE `cle_permission` IN ('clients_consulter');
+SELECT 'VENDEUR', id FROM `permissions` WHERE `cle_permission` IN ('clients_consulter','credit_consulter','credit_creer','credit_paiement_creer');
 INSERT IGNORE INTO `role_permissions` (`role_nom`, `permission_id`)
 SELECT 'CHEF_EQUIPE', id FROM `permissions` WHERE `cle_permission` IN
   ('clients_consulter','clients_gerer','conformite_archives','conformite_export_syscohada','articles_modifier',
-   'equipes_consulter','equipes_gerer','retards_consulter','absences_consulter');
+   'equipes_consulter','equipes_gerer','retards_consulter','absences_consulter',
+   'credit_consulter','credit_creer','credit_paiement_creer');
 INSERT IGNORE INTO `role_permissions` (`role_nom`, `permission_id`)
 SELECT 'CHEF_EQUIPE_USINE', id FROM `permissions` WHERE `cle_permission` IN
   ('usine_consulter','production_consulter','production_gerer','production_cloturer',
-   'machines_consulter','machines_gerer','machines_historique',
+   'machines_consulter','machines_gerer','machines_historique','machines_demarrer',
    'personnel_consulter','personnel_gerer','presence_consulter','presence_gerer',
-   'transfert_usine_gerer','stock_usine_consulter','stock_usine_transfert');
+   'transfert_usine_gerer','stock_usine_consulter','stock_usine_transfert',
+   'horaires_consulter','horaires_gerer',
+   'notifications_usine_consulter','notifications_usine_gerer',
+    'rendement_consulter','categories_pertes_consulter','categories_pertes_gerer');
+
+-- ============================================================
+-- 8.13 VENTES A CREDIT — Schema
+-- ============================================================
+
+-- Colonnes credit sur clients
+SET @col = (SELECT COUNT(*) FROM `information_schema`.`COLUMNS` WHERE `TABLE_SCHEMA` = DATABASE() AND `TABLE_NAME` = 'clients' AND `COLUMN_NAME` = 'credit_autorise');
+SET @sql = IF(@col = 0, "ALTER TABLE `clients` ADD COLUMN `credit_autorise` tinyint(1) NOT NULL DEFAULT 0 AFTER `date_anonymisation`", 'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+SET @col = (SELECT COUNT(*) FROM `information_schema`.`COLUMNS` WHERE `TABLE_SCHEMA` = DATABASE() AND `TABLE_NAME` = 'clients' AND `COLUMN_NAME` = 'limite_credit');
+SET @sql = IF(@col = 0, "ALTER TABLE `clients` ADD COLUMN `limite_credit` decimal(12,2) NOT NULL DEFAULT 0.00 AFTER `credit_autorise`", 'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+-- Colonnes suivi paiement sur factures
+SET @col = (SELECT COUNT(*) FROM `information_schema`.`COLUMNS` WHERE `TABLE_SCHEMA` = DATABASE() AND `TABLE_NAME` = 'factures' AND `COLUMN_NAME` = 'statut_paiement');
+SET @sql = IF(@col = 0, "ALTER TABLE `factures` ADD COLUMN `statut_paiement` enum('Payee','En_Attente','Partiellement_Payee','A_Credit','Annulee') NOT NULL DEFAULT 'Payee' AFTER `monnaie_rendue`", 'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+SET @col = (SELECT COUNT(*) FROM `information_schema`.`COLUMNS` WHERE `TABLE_SCHEMA` = DATABASE() AND `TABLE_NAME` = 'factures' AND `COLUMN_NAME` = 'reste_a_payer');
+SET @sql = IF(@col = 0, "ALTER TABLE `factures` ADD COLUMN `reste_a_payer` decimal(12,2) NOT NULL DEFAULT 0.00 AFTER `statut_paiement`", 'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+-- Table creances_clients
+CREATE TABLE IF NOT EXISTS `creances_clients` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `facture_id` int NOT NULL,
+  `client_id` int NOT NULL,
+  `montant_total` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `montant_paye` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `reste_a_payer` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `statut` enum('En_Cours','Partiellement_Payee','Payee','Annulee','En_Souffrance') NOT NULL DEFAULT 'En_Cours',
+  `date_echeance` date DEFAULT NULL,
+  `date_creation` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `date_modification` datetime DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  `notes` text,
+  PRIMARY KEY (`id`),
+  KEY `idx_creance_facture` (`facture_id`),
+  KEY `idx_creance_client` (`client_id`),
+  KEY `idx_creance_statut` (`statut`),
+  KEY `idx_creance_echeance` (`date_echeance`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Table paiements_credit
+CREATE TABLE IF NOT EXISTS `paiements_credit` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `creance_id` int NOT NULL,
+  `montant` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `mode_paiement` enum('Especes','Mobile_Money','Carte_Bancaire','Virement','Autre') NOT NULL DEFAULT 'Especes',
+  `reference` varchar(100) DEFAULT NULL,
+  `date_paiement` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `utilisateur_id` int DEFAULT NULL,
+  `notes` text,
+  PRIMARY KEY (`id`),
+  KEY `idx_pc_creance` (`creance_id`),
+  KEY `idx_pc_date` (`date_paiement`),
+  CONSTRAINT `chk_pc_montant` CHECK (`montant` > 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- FK pour creances_clients
+SET @fk = (SELECT COUNT(*) FROM `information_schema`.`TABLE_CONSTRAINTS` WHERE `TABLE_SCHEMA` = DATABASE() AND `TABLE_NAME` = 'creances_clients' AND `CONSTRAINT_NAME` = 'fk_creance_facture');
+SET @sql = IF(@fk = 0, "ALTER TABLE `creances_clients` ADD CONSTRAINT `fk_creance_facture` FOREIGN KEY (`facture_id`) REFERENCES `factures` (`id`) ON DELETE RESTRICT", 'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+SET @fk = (SELECT COUNT(*) FROM `information_schema`.`TABLE_CONSTRAINTS` WHERE `TABLE_SCHEMA` = DATABASE() AND `TABLE_NAME` = 'creances_clients' AND `CONSTRAINT_NAME` = 'fk_creance_client');
+SET @sql = IF(@fk = 0, "ALTER TABLE `creances_clients` ADD CONSTRAINT `fk_creance_client` FOREIGN KEY (`client_id`) REFERENCES `clients` (`id`) ON DELETE RESTRICT", 'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+-- FK pour paiements_credit
+SET @fk = (SELECT COUNT(*) FROM `information_schema`.`TABLE_CONSTRAINTS` WHERE `TABLE_SCHEMA` = DATABASE() AND `TABLE_NAME` = 'paiements_credit' AND `CONSTRAINT_NAME` = 'fk_pc_creance');
+SET @sql = IF(@fk = 0, "ALTER TABLE `paiements_credit` ADD CONSTRAINT `fk_pc_creance` FOREIGN KEY (`creance_id`) REFERENCES `creances_clients` (`id`) ON DELETE RESTRICT", 'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+SET @fk = (SELECT COUNT(*) FROM `information_schema`.`TABLE_CONSTRAINTS` WHERE `TABLE_SCHEMA` = DATABASE() AND `TABLE_NAME` = 'paiements_credit' AND `CONSTRAINT_NAME` = 'fk_pc_user');
+SET @sql = IF(@fk = 0, "ALTER TABLE `paiements_credit` ADD CONSTRAINT `fk_pc_user` FOREIGN KEY (`utilisateur_id`) REFERENCES `utilisateurs` (`id`) ON DELETE SET NULL", 'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+-- Trigger: autoriser les updates de montant_paye avant hachage (credit)
+DROP TRIGGER IF EXISTS `trg_factures_immutable_update`;
+DELIMITER $$
+CREATE TRIGGER `trg_factures_immutable_update` BEFORE UPDATE ON `factures` FOR EACH ROW BEGIN
+    IF OLD.numero_facture <> NEW.numero_facture THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'INTEGRITE: le numero de facture est immuable';
+    END IF;
+    IF OLD.hash_chaine IS NOT NULL THEN
+        IF OLD.total_ht <> NEW.total_ht OR OLD.total_ttc <> NEW.total_ttc
+           OR OLD.montant_paye <> NEW.montant_paye OR OLD.monnaie_rendue <> NEW.monnaie_rendue THEN
+            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'INTEGRITE: les montants d une facture validee sont immuables';
+        END IF;
+        IF OLD.hash_chaine <> NEW.hash_chaine THEN
+            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'INTEGRITE: le hash de chaine d une facture est immuable';
+        END IF;
+    END IF;
+    IF OLD.statut = 'Payee' AND NEW.statut NOT IN ('Payee', 'Annulee') THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'INTEGRITE: transition de statut invalide';
+    END IF;
+    IF OLD.statut = 'Annulee' AND NEW.statut = 'Payee' THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'INTEGRITE: une facture annulee est definitive';
+    END IF;
+    IF OLD.statut = 'Payee' AND NEW.statut = 'Annulee' AND NEW.date_annulation IS NULL THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'INTEGRITE: une annulation exige date et motif';
+    END IF;
+END
+$$
+DELIMITER ;
 
 -- 8.9 Migrer usines depuis magasins USINE (si applicable)
 INSERT IGNORE INTO `usines` (`code`, `nom`, `actif`)
