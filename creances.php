@@ -94,13 +94,24 @@ if ($statutFilter) $filters['statut'] = $statutFilter;
 if ($dateDebut) $filters['date_debut'] = $dateDebut;
 if ($dateFin) $filters['date_fin'] = $dateFin;
 
-$result = db_creances_search_sql($pdo, $filters);
-$creances = $result['results'];
-$total = $result['total'];
+try {
+    $result = db_creances_search_sql($pdo, $filters);
+    $creances = $result['results'];
+    $total = $result['total'];
+} catch (\Throwable $e) {
+    $creances = [];
+    $total = 0;
+    error_log('[CREANCES] search error: ' . $e->getMessage());
+}
 $totalPages = max(1, (int)ceil($total / 50));
 $currentPage = max(1, (int)($_GET['page'] ?? 1));
 
-$rapport = db_credit_rapport($pdo);
+try {
+    $rapport = db_credit_rapport($pdo);
+} catch (\Throwable $e) {
+    $rapport = [];
+    error_log('[CREANCES] rapport error: ' . $e->getMessage());
+}
 
 echo $twig->render('creances.html.twig', [
     'titre_page'   => 'Creances — Ventes a credit',
