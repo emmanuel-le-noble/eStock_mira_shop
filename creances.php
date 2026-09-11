@@ -106,7 +106,10 @@ try {
 $totalPages = max(1, (int)ceil($total / 50));
 $currentPage = max(1, (int)($_GET['page'] ?? 1));
 
-$rapport = db_credit_rapport($pdo);
+// Stats depuis les memes filtres que la liste (sans pagination)
+$statsFilters = $filters;
+unset($statsFilters['limit'], $statsFilters['offset']);
+$rapport = db_credit_rapport_filtered($pdo, $statsFilters);
 
 echo $twig->render('creances.html.twig', [
     'titre_page'   => 'Creances — Ventes a credit',

@@ -5510,12 +5510,41 @@ function db_creances_search_sql(PDO $pdo, array $filters = []): array {
  * Rapport synthétique des creances.
  */
 function db_credit_rapport(PDO $pdo, ?int $magasin_id = null): array {
-    $whereMag = '';
+    return db_credit_rapport_filtered($pdo, []);
+}
+
+/**
+ * Rapport synthetique des creances, avec filtres identiques a la liste.
+ */
+function db_credit_rapport_filtered(PDO $pdo, array $filters = []): array {
+    $where = [];
     $params = [];
-    if ($magasin_id !== null && $magasin_id > 0) {
-        $whereMag = 'AND f.magasin_id = ?';
-        $params[] = $magasin_id;
+
+    if (!empty($filters['client_id'])) {
+        $where[] = 'c.client_id = ?';
+        $params[] = (int)$filters['client_id'];
     }
+    if (!empty($filters['statut'])) {
+        $where[] = 'c.statut = ?';
+        $params[] = $filters['statut'];
+    }
+    if (!empty($filters['date_debut'])) {
+        $where[] = 'c.date_creation >= ?';
+        $params[] = $filters['date_debut'];
+    }
+    if (!empty($filters['date_fin'])) {
+        $where[] = 'c.date_creation <= ?';
+        $params[] = $filters['date_fin'] . ' 23:59:59';
+    }
+    if (!empty($filters['search'])) {
+        $where[] = '(cl.nom LIKE ? OR f.numero_facture LIKE ? OR cl.telephone LIKE ?)';
+        $s = '%' . $filters['search'] . '%';
+        $params[] = $s;
+        $params[] = $s;
+        $params[] = $s;
+    }
+
+    $whereClause = $where ? 'WHERE ' . implode(' AND ', $where) : '';
 
     $sql = "SELECT
                 COUNT(*) AS nb_creances,
@@ -5526,16 +5555,26 @@ function db_credit_rapport(PDO $pdo, ?int $magasin_id = null): array {
                 SUM(CASE WHEN c.statut = 'Partiellement_Payee' THEN 1 ELSE 0 END) AS nb_partiel,
                 SUM(CASE WHEN c.statut = 'Payee' THEN 1 ELSE 0 END) AS nb_payee,
                 SUM(CASE WHEN c.statut = 'En_Souffrance' THEN 1 ELSE 0 END) AS nb_souffrance,
-                SUM(CASE WHEN c.date_echeance < CURDATE() AND c.statut IN ('En_Cours','Partiellement_Payee') THEN 1 ELSE 0 END) AS nb_retard,
-                SUM(CASE WHEN c.date_echeance < CURDATE() AND c.statut IN ('En_Cours','Partiellement_Payee') THEN c.reste_a_payer ELSE 0 END) AS montant_retard,
+                SUM(CASE WHEN c.date_echeance < CURDATE() AND c.statut IN ('En_Cours','Partiellement_Payee') AND c.reste_a_payer > 0 THEN 1 ELSE 0 END) AS nb_retard,
+                SUM(CASE WHEN c.date_echeance < CURDATE() AND c.statut IN ('En_Cours','Partiellement_Payee') AND c.reste_a_payer > 0 THEN c.reste_a_payer ELSE 0 END) AS montant_retard,
                 COUNT(DISTINCT c.client_id) AS nb_clients
             FROM creances_clients c
             JOIN factures f ON f.id = c.facture_id
-            WHERE 1=1 $whereMag";
+            JOIN clients cl ON cl.id = c.client_id
+            $whereClause";
 
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
-    return $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+    // Cast SUM results (may be null if no rows)
+    foreach (['total_montant','total_paye','total_reste','montant_retard'] as $k) {
+        $row[$k] = (float)($row[$k] ?? 0);
+    }
+    foreach (['nb_creances','nb_en_cours','nb_partiel','nb_payee','nb_souffrance','nb_retard','nb_clients'] as $k) {
+        $row[$k] = (int)($row[$k] ?? 0);
+    }
+    return $row;
 }
 
 /**
